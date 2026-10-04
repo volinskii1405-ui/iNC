@@ -1,3 +1,2 @@
-blackhole
-blackhole.exe
-*.o
+build/
+*.png
