@@ -51,6 +51,7 @@ struct Obj {
     float hurtCd = 0;
     float hp = 1;            // Ядро: сколько осталось откусить
     bool pulled = false;
+    bool fragment = false;   // осколок цепной реакции/сверхновой — сам не взрывается
     bool dead = false;
     uint32_t id = 0;
 };
@@ -61,7 +62,7 @@ enum Stat {
     ST_DENSITY, ST_RICH, ST_COMBO, ST_COMBOWIN, ST_CRIT, ST_CRITMULT, ST_CLOCK, ST_CLOCKVAL, ST_ARMOR,
     ST_GOLD, ST_CHAIN, ST_SAT, ST_SATSIZE, ST_DASH, ST_DASHCD, ST_COLLAPSE, ST_COLLAPSEPOW, ST_DARK,
     ST_INTEREST, ST_MAGNET, ST_TIMEFEED, ST_ANTIEAT, ST_LOOP, ST_RIVAL, ST_SWARM, ST_PHANTOM, ST_FINAL,
-    ST_BITE, ST_POWER, ST_POWERDUR,
+    ST_BITE, ST_POWER, ST_POWERDUR, ST_HUNGER, ST_HYPER, ST_CARDS, ST_EVO,
 };
 
 enum class Branch { Root, Gravity, Growth, Time, Wealth, Cosmos, Dark };
@@ -84,9 +85,11 @@ struct NodeDef {
 extern const std::vector<NodeDef> kNodes;
 
 struct Stats {
-    double size = 13, speed = 1, pull = 1, pullStr = 1, eat = 0.85, growth = 1, time = 15;
+    double size = 13, speed = 1, pull = 1, pullStr = 1, eat = 0.85, growth = 1, time = 12;
     double value = 1, tierVal[kTierCount] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
     double bite = 1, power = 0.004, powerDur = 1;
+    double hunger = 1, hyperDur = 4;
+    int cards = 3, evo = 5;
     double density = 1, rich = 0, comboMax = 1.5, comboWin = 0.6, crit = 0, critMult = 5;
     double clock = 0, clockVal = 2, armor = 0, gold = 0.002, chain = 0;
     int sats = 0;
@@ -105,8 +108,43 @@ struct Stats {
 // ---------- события для интерфейса ----------
 enum class EvType {
     Eat, Hurt, Clock, Dark, Chain, RivalEaten, RunStart, RunEnd, Dash, Collapse, LoopSave, Win, NodeBuy, SatEat, Gold,
-    CoreBite, CoreEaten, PowerUp, Nova
+    CoreBite, CoreEaten, PowerUp, Nova, Evolve, CardPick, Hyper, QuestDone, Modifier
 };
+
+// ---------- эволюция в заходе: карты-усиления ----------
+enum Card { CARD_PULL, CARD_SPEED, CARD_CHAIN, CARD_SAT, CARD_TIME, CARD_MAGNET, CARD_TEETH, CARD_GREED,
+            CARD_CRIT, CARD_ARMOR, CARD_FEAST, CARD_NOVA, CARD_HUNGER, CARD_COUNT };
+
+struct CardDef {
+    const char *name;
+    const char *desc;
+    int rarity;  // 0 обычная, 1 редкая, 2 эпическая
+};
+
+extern const std::array<CardDef, CARD_COUNT> kCards;
+
+// ---------- аномалии захода ----------
+enum Modifier { MOD_NONE, MOD_METEOR, MOD_GOLD, MOD_DARK, MOD_RIVALS, MOD_STARFALL, MOD_CALM, MOD_PULSARS, MOD_COUNT };
+
+struct ModifierDef {
+    const char *name;
+    const char *desc;
+};
+
+extern const std::array<ModifierDef, MOD_COUNT> kModifiers;
+
+// ---------- задания захода ----------
+enum QuestType { Q_EAT, Q_BIG, Q_COMBO, Q_NOHIT, Q_GROW, Q_ARTIFACT, Q_RIVAL, Q_GOLD, Q_COUNT };
+
+struct Quest {
+    QuestType type = Q_EAT;
+    double target = 1, progress = 0;
+    bool done = false;
+};
+
+std::string questText(const Quest &q);
+
+constexpr double kMaxRunTime = 30;  // таймер захода не больше 30 секунд
 
 struct Event {
     EvType type;
@@ -134,7 +172,8 @@ public:
     bool canBuy(int node) const;
     bool buyNode(int node);
     int affordableCount() const;
-    const Stats &stats() const { return st_; }
+    const Stats &stats() const { return st_; }       // постоянные (дерево)
+    const Stats &runStats() const { return rs_; }    // в текущем заходе, с картами и аномалией
 
     // Заход
     void startRun();
@@ -142,6 +181,7 @@ public:
     void update(double dt, Vec target, bool dash, bool collapse);
     void finishRunScreen() { if (phase == Phase::RunEnd) phase = Phase::Tree; }
     void nextUniverse();  // после Ядра: следующая вселенная
+    bool chooseCard(int i);  // выбор карты эволюции (0..cards-1)
 
     // Камера: радиус дыры на экране и масштаб
     float zoomFor(float R) const;
@@ -158,6 +198,14 @@ public:
     int universe = 0;
     // артефакты
     double magnetLeft = 0, chronoLeft = 0, doubleLeft = 0;
+    // эволюция, голод, аномалия, задания
+    bool choosing = false;
+    std::vector<int> choices, picked;
+    int evoLevel = 0;
+    double hunger = 0, hyperLeft = 0;
+    Modifier modifier = MOD_NONE;
+    std::array<Quest, 2> quests{};
+    double noHitTime = 0;
 
     // Текущий заход
     Vec pos, vel;
@@ -186,7 +234,10 @@ private:
     float rnd(float a, float b) { return a + (b - a) * rnd(); }
 
     std::vector<int> levels_;
-    Stats st_;
+    Stats st_, rs_;
+    void applyCard(int c);
+    void questProgress(QuestType t, double v, bool absolute = false);
+    void evolveCheck();
     std::mt19937 rng_;
     uint32_t nextId_ = 1;
     double spawnAcc_ = 0;

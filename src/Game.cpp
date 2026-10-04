@@ -7,7 +7,7 @@
 
 namespace bh {
 
-double kRingCost = 3.0, kLevelGrowthAdd = 0.5;
+double kRingCost = 5.0, kLevelGrowthAdd = 0.5;
 float kGrowthK = 0.45f;
 float kBiteRatio = 0.5f, kBiteRate = 0.12f;
 float kMaxGrowth = 3.0f;
@@ -35,6 +35,50 @@ const std::array<UniverseDef, kUniverseCount> kUniverses = {{
     {"Огненная вселенная",    "Объекты ×9, Ядро ещё крупнее", 9, 6800, 1.5f},
     {"Квантовая пена",        "Последняя. Объекты ×27", 27, 7800, 1.75f},
 }};
+
+const std::array<CardDef, CARD_COUNT> kCards = {{
+    {"Гравитационный рост", "Радиус притяжения ×1.35", 0},
+    {"Ускорение",           "Скорость дыры ×1.25", 0},
+    {"Цепная реакция",      "+35% шанс: крупная добыча взрывается в еду", 1},
+    {"Мини-дыра",           "+1 спутник до конца захода", 2},
+    {"Хроно-заряд",         "+6 секунд (но не дольше 30 с захода)", 0},
+    {"Магнитная аура",      "Магнит на 8 секунд прямо сейчас", 1},
+    {"Острые зубы",         "Можно есть объекты на 5% крупнее", 1},
+    {"Жадность",            "Масса ×1.25 до конца захода", 1},
+    {"Крит-удача",          "+10% шанс крита", 0},
+    {"Броня горизонта",     "−35% урона от опасностей", 1},
+    {"Пир горой",           "Предел пира +0.5", 0},
+    {"Сверхновая",          "Всё крупное вокруг раскалывается в еду", 2},
+    {"Волчий голод",        "Голод копится на 60% быстрее и сразу +50%", 0},
+}};
+
+const std::array<ModifierDef, MOD_COUNT> kModifiers = {{
+    {"", ""},
+    {"Метеоритный шторм",    "Повсюду рои мелочи"},
+    {"Золотая лихорадка",    "Золотые кометы на каждом шагу"},
+    {"Тёмная туманность",    "Тёмной материи вчетверо больше"},
+    {"Нашествие соперников", "Соперников больше, масса ×1.3"},
+    {"Звездопад",            "Крупные объекты встречаются чаще"},
+    {"Спокойный сектор",     "Никаких опасностей"},
+    {"Пульсарное поле",      "Пульсаров много, тёмной материи вдвое больше"},
+}};
+
+std::string questText(const Quest &q)
+{
+    char buf[128];
+    switch (q.type) {
+    case Q_EAT: std::snprintf(buf, sizeof buf, "Съешь %.0f объектов", q.target); break;
+    case Q_BIG: std::snprintf(buf, sizeof buf, "Съешь %.0f крупных (от 60%% себя)", q.target); break;
+    case Q_COMBO: std::snprintf(buf, sizeof buf, "Разгони пир до %.0f подряд", q.target); break;
+    case Q_NOHIT: std::snprintf(buf, sizeof buf, "Продержись %.0f с без урона", q.target); break;
+    case Q_GROW: std::snprintf(buf, sizeof buf, "Вырасти в %.0f раза", q.target); break;
+    case Q_ARTIFACT: std::snprintf(buf, sizeof buf, "Подбери артефакт"); break;
+    case Q_RIVAL: std::snprintf(buf, sizeof buf, "Съешь дыру-соперника"); break;
+    case Q_GOLD: std::snprintf(buf, sizeof buf, "Поймай золотую комету"); break;
+    default: buf[0] = 0;
+    }
+    return buf;
+}
 
 namespace {
 
@@ -92,20 +136,20 @@ const RawNode kRaw[] = {
     {"Пятый спутник", "+1 спутник", ST_SAT, 1, 0, 1, 3e7, 1, "Четвёртый спутник", Branch::Growth, 7, -6},
 
     // Время — длительность захода, часы, защита
-    {"Стабильный горизонт", "+3 с к заходу", ST_TIME, 3, 0, 5, 12, 1.6, "Сингулярность", Branch::Time, 1, 0},
+    {"Стабильный горизонт", "+2 с к заходу (предел 30 с)", ST_TIME, 2, 0, 4, 12, 1.6, "Сингулярность", Branch::Time, 1, 0},
     {"Квантовые часы", "Чаще попадаются часы (+2 с)", ST_CLOCK, 0.006, 0, 5, 60, 1.8, "Стабильный горизонт", Branch::Time, 2, -12},
     {"Щит Хокинга", "−15% урона от опасностей", ST_ARMOR, 0.15, 0, 5, 200, 1.8, "Стабильный горизонт", Branch::Time, 2, 12},
-    {"Застывшее время", "+3 с к заходу", ST_TIME, 3, 0, 5, 800, 1.8, "Квантовые часы", Branch::Time, 3, -18},
+    {"Застывшее время", "+2 с к заходу (предел 30 с)", ST_TIME, 2, 0, 3, 800, 1.8, "Квантовые часы", Branch::Time, 3, -18},
     {"Часовщик", "Часы дают на 1 с больше", ST_CLOCKVAL, 1, 0, 3, 1500, 2.0, "Квантовые часы", Branch::Time, 3, 0},
     {"Отражение", "−10% урона от опасностей", ST_ARMOR, 0.10, 0, 3, 2500, 2.0, "Щит Хокинга", Branch::Time, 3, 18},
-    {"Замедление", "+4 с к заходу", ST_TIME, 4, 0, 5, 1.2e4, 1.9, "Застывшее время", Branch::Time, 4, -21},
-    {"Пожиратель времени", "Звезда и крупнее: +0.5 с", ST_TIMEFEED, 0.5, 0, 3, 2e4, 2.0, "Часовщик", Branch::Time, 4, -7},
+    {"Замедление", "+1 с к заходу (предел 30 с)", ST_TIME, 1, 0, 4, 1.2e4, 1.9, "Застывшее время", Branch::Time, 4, -21},
+    {"Пожиратель времени", "Крупная добыча: +0.5 с (в пределах 30 с)", ST_TIMEFEED, 0.5, 0, 3, 2e4, 2.0, "Часовщик", Branch::Time, 4, -7},
     {"Антиматерия на ужин", "Антиматерию можно съесть — она ценная", ST_ANTIEAT, 1, 0, 1, 3e4, 1, "Отражение", Branch::Time, 4, 7},
-    {"Петля времени", "+25% шанс второй жизни: +8 с в конце", ST_LOOP, 0.25, 0, 3, 3e5, 2.2, "Отражение", Branch::Time, 4, 21},
-    {"Вечность", "+3 с к заходу", ST_TIME, 3, 0, 5, 2e5, 2.0, "Замедление", Branch::Time, 5, -11},
-    {"Остановка времени", "+4 с к заходу", ST_TIME, 4, 0, 3, 3e6, 2.5, "Вечность", Branch::Time, 6, -6},
+    {"Петля времени", "+25% шанс второй жизни: ещё до 8 с (в пределах 30 с)", ST_LOOP, 0.25, 0, 3, 3e5, 2.2, "Отражение", Branch::Time, 4, 21},
+    {"Неутолимый голод", "Шкала голода копится на 20% быстрее", ST_HUNGER, 0.2, 0, 5, 2e5, 2.0, "Замедление", Branch::Time, 5, -11},
+    {"Долгое безумие", "Гиперпоглощение длится на 1 с дольше", ST_HYPER, 1, 0, 3, 3e6, 2.5, "Неутолимый голод", Branch::Time, 6, -6},
     {"Хроносфера", "Артефакты действуют на 30% дольше", ST_POWERDUR, 0.30, 0, 3, 1e6, 2.2, "Петля времени", Branch::Time, 5, 11},
-    {"Бесконечность", "+5 с к заходу", ST_TIME, 5, 0, 3, 3e7, 2.5, "Остановка времени", Branch::Time, 7, -6},
+    {"Широкий выбор", "Эволюция предлагает 4 карты вместо 3", ST_CARDS, 1, 0, 1, 3e7, 1, "Долгое безумие", Branch::Time, 7, -6},
 
     // Богатство — ценность добычи
     {"Плотная материя", "+25% масса от всего", ST_VALUE, 0.25, 0, 5, 15, 1.6, "Сингулярность", Branch::Wealth, 1, 0},
@@ -146,9 +190,9 @@ const RawNode kRaw[] = {
     {"Тёмное ускорение", "+20% скорость дыры", ST_SPEED, 0.20, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, -12},
     {"Тёмный рост", "+30% рост от поглощения", ST_GROWTH, 0.30, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, 12},
     {"Фантомный рывок", "Во время рывка опасности не ранят", ST_PHANTOM, 1, 0, 1, 6, 1, "Тёмное ускорение", Branch::Dark, 3, -18},
-    {"Тёмная корона", "+3 с к заходу", ST_TIME, 3, 0, 3, 5, 1.7, "Тёмное ускорение", Branch::Dark, 3, 0},
+    {"Тёмная эволюция", "+1 эволюция за заход", ST_EVO, 1, 0, 2, 5, 1.7, "Тёмное ускорение", Branch::Dark, 3, 0},
     {"Тёмное богатство", "Масса от всего ×1.5", ST_VALUEX, 1.5, 0, 3, 5, 1.8, "Тёмный рост", Branch::Dark, 3, 18},
-    {"Тёмный спутник", "+1 спутник", ST_SAT, 1, 0, 1, 10, 1, "Тёмная корона", Branch::Dark, 4, -7},
+    {"Тёмный спутник", "+1 спутник", ST_SAT, 1, 0, 1, 10, 1, "Тёмная эволюция", Branch::Dark, 4, -7},
     {"Тёмный горизонт", "Можно есть объекты на 8% крупнее", ST_EAT, 0.08, 0, 2, 12, 1.8, "Тёмное богатство", Branch::Dark, 4, 7},
     {"Тёмная энергия", "Масса от всего ×2", ST_VALUEX, 2, 0, 2, 20, 2.0, "Тёмный горизонт", Branch::Dark, 5, 0},
     {"Тёмные артефакты", "Артефакты попадаются чаще", ST_POWER, 0.004, 0, 3, 8, 1.6, "Тёмный спутник", Branch::Dark, 5, -11},
@@ -240,6 +284,10 @@ void Game::recompute()
         case ST_SWARM: s.swarm += l; break;
         case ST_PHANTOM: s.phantom = true; break;
         case ST_FINAL: s.final = true; break;
+        case ST_HUNGER: s.hunger += v; break;
+        case ST_HYPER: s.hyperDur += v; break;
+        case ST_CARDS: s.cards += l; break;
+        case ST_EVO: s.evo += l; break;
         case ST_BITE: s.bite += v; break;
         case ST_POWER: s.power += v; break;
         case ST_POWERDUR: s.powerDur += v; break;
@@ -247,13 +295,20 @@ void Game::recompute()
         if (n.stat == ST_VALUEX) s.value *= std::pow(n.value, l);
     }
     s.eat += eatBonus;
+    s.time = std::min(s.time, kMaxRunTime);
     s.armor = std::min(s.armor, 0.8);
     st_ = s;
+    rs_ = s;
 }
 
 bool Game::nodeVisible(int i) const { return i == 0 || levels_[kNodes[i].parent] > 0; }
 
-int Game::levelCap(int i) const { return kNodes[i].maxLevel + (kNodes[i].maxLevel > 1 ? 2 * universe : 0); }
+int Game::levelCap(int i) const
+{
+    // секунды не растут дальше 30 — их пределы новые вселенные не поднимают
+    bool grows = kNodes[i].maxLevel > 1 && kNodes[i].stat != ST_TIME;
+    return kNodes[i].maxLevel + (grows ? 2 * universe : 0);
+}
 
 bool Game::nodeAvailable(int i) const { return i > 0 && nodeVisible(i) && levels_[i] < levelCap(i); }
 
@@ -313,21 +368,22 @@ bool Game::kindOnField(Kind k) const
 
 bool Game::canEat(const Obj &o) const
 {
+    const double eatR = rs_.eat + (hyperLeft > 0 ? 0.35 : 0.0);
     switch (o.kind) {
     case K_CLOCK: case K_DARK: case K_MAGNET: case K_NOVA: case K_CHRONO: case K_DOUBLE: return true;
     case K_CORE: return false;  // Ядро не глотают целиком — его кусают
-    case K_ANTI: return st_.antiEat && o.size < R * st_.eat;
-    case K_PULSAR: return o.size < R * st_.eat * 0.5f;  // пульсар плотный: нужна дыра вдвое крупнее
-    default: return o.size < R * st_.eat;
+    case K_ANTI: return rs_.antiEat && o.size < R * eatR;
+    case K_PULSAR: return o.size < R * eatR * 0.5f;  // пульсар плотный: нужна дыра вдвое крупнее
+    default: return o.size < R * eatR;
     }
 }
 
-double Game::tierValue(int t) const { return kTiers[t].value * st_.tierVal[t] * st_.value * kUniverses[universe].valueMult; }
+double Game::tierValue(int t) const { return kTiers[t].value * rs_.tierVal[t] * rs_.value * kUniverses[universe].valueMult; }
 
 int Game::pickTier()
 {
     // Размеры вокруг текущего радиуса дыры: и еда, и препятствия покрупнее.
-    float center = std::log(R * (0.55f + (float)st_.rich));
+    float center = std::log(R * (0.55f + (float)rs_.rich));
     double w[kTierCount], sum = 0;
     for (int t = 0; t < kTierCount; t++) {
         float d = std::log(kTiers[t].size) - center;
@@ -364,30 +420,34 @@ void Game::spawnAround(bool initial)
     float vr = viewRadius();
     float area = vr * vr;
     // Сколько объектов держать вокруг: плотность в «экранах», не в мировых единицах.
-    int target = (int)(90 * st_.density);
+    int target = (int)(90 * rs_.density);
     int count = 0;
     for (auto &o : objs)
         if (!o.dead) count++;
     int need = target - count;
     (void)area;
-    float hz = kUniverses[universe].hazard;
+    float hz = kUniverses[universe].hazard * (modifier == MOD_CALM ? 0.0f : 1.0f);
+    float base = (float)(rs_.clock + rs_.dark + rs_.gold + rs_.power);
+    float bandAnti = base + 0.035f * hz;
+    float bandPulsar = bandAnti + 0.015f * hz * (modifier == MOD_PULSARS ? 4.0f : 1.0f);
+    float bandRival = bandPulsar + 0.015f * hz * (modifier == MOD_RIVALS ? 4.0f : 1.0f);
     for (int k = 0; k < need; k++) {
         float a = rnd(0, 6.2832f);
         float d = initial ? rnd(R * 3, vr * 1.25f) : rnd(vr * 1.05f, vr * 1.35f);
         Vec p = {pos.x + std::cos(a) * d, pos.y + std::sin(a) * d};
         float roll = rnd();
         Obj o;
-        if (roll < st_.clock && clockCd_ <= 0 && !kindOnField(K_CLOCK)) {
+        if (roll < rs_.clock && clockCd_ <= 0 && !kindOnField(K_CLOCK)) {
             clockCd_ = 4;
             o = makeObj(0, p);
             o.kind = K_CLOCK;
             o.size = std::max(6.0f, R * 0.35f);
-        } else if (roll < st_.clock + st_.dark && darkCd_ <= 0 && !kindOnField(K_DARK)) {
+        } else if (roll < rs_.clock + rs_.dark && darkCd_ <= 0 && !kindOnField(K_DARK)) {
             darkCd_ = 5;
             o = makeObj(0, p);
             o.kind = K_DARK;
             o.size = std::max(6.0f, R * 0.35f);
-        } else if (roll < st_.clock + st_.dark + st_.gold && goldCd_ <= 0 && !kindOnField(K_GOLD)) {
+        } else if (roll < rs_.clock + rs_.dark + rs_.gold && goldCd_ <= 0 && !kindOnField(K_GOLD)) {
             goldCd_ = 8;
             o = makeObj(0, p);
             o.kind = K_GOLD;
@@ -395,7 +455,7 @@ void Game::spawnAround(bool initial)
             float sa = rnd(0, 6.2832f);
             float sp = 260 / zoomFor(R);
             o.v = {std::cos(sa) * sp, std::sin(sa) * sp};
-        } else if (roll < st_.clock + st_.dark + st_.gold + st_.power && powerCd_ <= 0 && !kindOnField(K_MAGNET) &&
+        } else if (roll < rs_.clock + rs_.dark + rs_.gold + rs_.power && powerCd_ <= 0 && !kindOnField(K_MAGNET) &&
                    !kindOnField(K_NOVA) && !kindOnField(K_CHRONO) && !kindOnField(K_DOUBLE)) {
             // артефакт: магнит, сверхновая, хроносфера или удвоитель
             powerCd_ = 7;
@@ -404,21 +464,21 @@ void Game::spawnAround(bool initial)
             o.kind = kinds[(int)(rnd() * 4) % 4];
             o.size = std::max(7.0f, R * 0.4f);
             o.spin = 60;
-        } else if (runs >= 2 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.035f * hz) {
+        } else if (runs >= 2 && roll < bandAnti) {
             o = makeObj(0, p);
             o.kind = K_ANTI;
             o.size = R * rnd(0.35f, 0.7f);
-        } else if (runs >= 4 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.05f * hz) {
+        } else if ((runs >= 4 || modifier == MOD_PULSARS) && roll < bandPulsar) {
             o = makeObj(0, p);
             o.kind = K_PULSAR;
             o.size = R * rnd(0.4f, 1.2f);
             o.v = {0, 0};
             o.beam = rnd(0, 6.2832f);
-        } else if (runs >= 3 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.065f * hz) {
+        } else if ((runs >= 3 || modifier == MOD_RIVALS) && roll < bandRival) {
             o = makeObj(0, p);
             o.kind = K_RIVAL;
             o.size = R * rnd(0.5f, 1.5f);
-        } else if (st_.swarm > 0 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.065f * hz + 0.02f * st_.swarm) {
+        } else if (rs_.swarm > 0 && roll < bandRival + 0.02f * rs_.swarm) {
             // рой: несколько объектов помельче кучкой
             int tier = std::max(0, pickTier() - 1);
             for (int s = 0; s < 6; s++) {
@@ -440,8 +500,8 @@ void Game::startRun()
     runs++;
     pos = {0, 0};
     vel = {0, 0};
-    R = (float)st_.size;
-    timeLeft = st_.time;
+    R = (float)rs_.size;
+    timeLeft = rs_.time;
     runTime = 0;
     runMass = 0;
     runEaten = 0;
@@ -459,9 +519,50 @@ void Game::startRun()
     powerCd_ = 5;
     biteFx_ = 0;
     magnetLeft = chronoLeft = doubleLeft = 0;
+    // эволюция, голод, аномалия, задания
+    rs_ = st_;
+    choosing = false;
+    choices.clear();
+    picked.clear();
+    evoLevel = 0;
+    hunger = hyperLeft = 0;
+    noHitTime = 0;
+    modifier = MOD_NONE;
+    if (runs >= 2 && rnd() < 0.75f) modifier = (Modifier)(1 + (int)(rnd() * (MOD_COUNT - 1)) % (MOD_COUNT - 1));
+    switch (modifier) {
+    case MOD_METEOR: rs_.density += 0.6; rs_.swarm += 3; break;
+    case MOD_GOLD: rs_.gold *= 6; break;
+    case MOD_DARK: rs_.dark *= 4; break;
+    case MOD_RIVALS: rs_.value *= 1.3; break;
+    case MOD_STARFALL: rs_.rich += 0.2; break;
+    case MOD_PULSARS: rs_.dark *= 2; break;
+    default: break;
+    }
+    {
+        std::vector<QuestType> pool = {Q_EAT, Q_BIG, Q_COMBO, Q_GROW, Q_ARTIFACT};
+        if (runs >= 2 && modifier != MOD_CALM) pool.push_back(Q_NOHIT);
+        if (runs >= 3 && modifier != MOD_CALM) pool.push_back(Q_RIVAL);
+        if (modifier == MOD_GOLD) pool.push_back(Q_GOLD);
+        for (int k = 0; k < 2; k++) {
+            int idx = (int)(rnd() * pool.size()) % (int)pool.size();
+            Quest q;
+            q.type = pool[idx];
+            pool.erase(pool.begin() + idx);
+            switch (q.type) {
+            case Q_EAT: q.target = 40; break;
+            case Q_BIG: q.target = 3; break;
+            case Q_COMBO: q.target = 25; break;
+            case Q_NOHIT: q.target = 15; break;
+            case Q_GROW: q.target = 2; break;
+            default: q.target = 1;
+            }
+            quests[k] = q;
+        }
+    }
+    if (modifier != MOD_NONE) events.push_back({EvType::Modifier, 0, (int)modifier});
     objs.clear();
     spawnAround(true);
-    if (st_.final) {
+    if (rs_.final) {
         // Ядро Вселенной ждёт неподалёку
         Obj core = makeObj(0, {R * 22, -R * 14});
         core.kind = K_CORE;
@@ -476,17 +577,16 @@ void Game::startRun()
 
 void Game::addTime(double s)
 {
-    double room = st_.time * 0.5 - timeGained_;
-    double add = std::max(0.0, std::min(s, room));
-    timeGained_ += add;
-    timeLeft += add;
+    // подзарядка: заход никогда не длится больше 30 секунд с начала
+    timeLeft = std::max(0.0, std::min(kMaxRunTime - runTime, timeLeft + s));
 }
 
 void Game::hurt(double seconds, Vec at)
 {
-    if (st_.phantom && dashLeft > 0) return;
+    if (rs_.phantom && dashLeft > 0) return;
     if (chronoLeft > 0) return;  // хроносфера защищает
-    double d = seconds * (1 - st_.armor);
+    noHitTime = 0;
+    double d = seconds * (1 - rs_.armor);
     timeLeft -= d;
     hurtFlash = 1;
     events.push_back({EvType::Hurt, d, 0, at});
@@ -500,7 +600,7 @@ void Game::eat(Obj &target, bool bySat)
     e.size = o.size;
     switch (o.kind) {
     case K_CLOCK: {
-        double add = st_.clockVal;
+        double add = rs_.clockVal;
         addTime(add);
         events.push_back({EvType::Clock, add, 0, o.p});
         return;
@@ -510,12 +610,13 @@ void Game::eat(Obj &target, bool bySat)
         events.push_back({EvType::Dark, 1, 0, o.p});
         return;
     case K_MAGNET: case K_NOVA: case K_CHRONO: case K_DOUBLE: {
-        double dur = 7 * st_.powerDur;
+        double dur = 7 * rs_.powerDur;
         if (o.kind == K_MAGNET) magnetLeft = dur;
-        if (o.kind == K_CHRONO) chronoLeft = dur * 0.8;
+        if (o.kind == K_CHRONO) chronoLeft = 3 * rs_.powerDur;
         if (o.kind == K_DOUBLE) doubleLeft = dur;
         if (o.kind == K_NOVA) nova();
         events.push_back({EvType::PowerUp, dur, (int)o.kind, o.p});
+        questProgress(Q_ARTIFACT, 1);
         return;
     }
     default: break;
@@ -527,9 +628,10 @@ void Game::eat(Obj &target, bool bySat)
         // золотая комета: ×20 к лучшему из того, что сейчас по зубам
         int t = 0;
         for (int k = 0; k < kTierCount; k++)
-            if (kTiers[k].size < R * st_.eat) t = k;
+            if (kTiers[k].size < R * rs_.eat) t = k;
         v = tierValue(t) * 20;
         events.push_back({EvType::Gold, v, 0, o.p});
+        questProgress(Q_GOLD, 1);
     } else if (o.kind == K_ANTI) {
         int t = 0;
         for (int k = 0; k < kTierCount; k++)
@@ -538,21 +640,23 @@ void Game::eat(Obj &target, bool bySat)
     } else if (o.kind == K_PULSAR) {
         v = tierValue(6) * 3;
     } else if (o.kind == K_RIVAL) {
-        v = 40 * std::pow(o.size, 1.6) * st_.value * st_.rival;
+        v = 40 * std::pow(o.size, 1.6) * rs_.value * rs_.rival;
         events.push_back({EvType::RivalEaten, v, 0, o.p});
+        questProgress(Q_RIVAL, 1);
     } else {
         v = tierValue(o.tier);
     }
 
     if (!bySat) {
         combo++;
-        comboTimer = st_.comboWin;
+        comboTimer = rs_.comboWin;
     }
-    double cm = std::min(st_.comboMax, 1.0 + combo * 0.03);
+    double cm = std::min(rs_.comboMax, 1.0 + combo * 0.03);
     v *= cm;
     if (doubleLeft > 0) v *= 2;
-    if (rnd() < st_.crit) {
-        v *= st_.critMult;
+    if (hyperLeft > 0) v *= 2;
+    if (rnd() < rs_.crit) {
+        v *= rs_.critMult;
         e.crit = true;
     }
     mass += v;
@@ -565,24 +669,39 @@ void Game::eat(Obj &target, bool bySat)
     if (bySat) e.type = EvType::SatEat;
     events.push_back(e);
 
+    if (!bySat) {
+        float rel = o.size / std::max(1.0f, R);
+        questProgress(Q_EAT, 1);
+        if (rel >= 0.6f) questProgress(Q_BIG, 1);
+        questProgress(Q_COMBO, combo, true);
+        if (hyperLeft <= 0) {
+            hunger += rel * rel * 0.5 * rs_.hunger;
+            if (hunger >= 1) {
+                hunger = 0;
+                hyperLeft = rs_.hyperDur;
+                events.push_back({EvType::Hyper, hyperLeft, 0, pos});
+            }
+        }
+    }
     // Рост: площадь съеденного добавляется к площади горизонта.
     if (!bySat) {
-        runArea_ += o.size * o.size * (float)st_.growth;
-        float R0 = (float)st_.size;
+        runArea_ += o.size * o.size * (float)rs_.growth;
+        float R0 = (float)rs_.size;
         R = R0 * std::min(kMaxGrowth, 1 + kGrowthK * std::log(1 + runArea_ / (R0 * R0)));
         bestR = std::max(bestR, (double)R);
     }
 
     // Крупная добыча (не меньше половины дыры): время и цепная реакция.
     if (o.kind == K_TIER && o.size >= R * 0.45f && !bySat) {
-        if (st_.timeFeed > 0) addTime(st_.timeFeed);
-        if (o.tier >= 3 && rnd() < st_.chain) {
+        if (rs_.timeFeed > 0) addTime(rs_.timeFeed);
+        if (o.tier >= 3 && !o.fragment && objs.size() < 700 && rnd() < rs_.chain) {
             // Цепная реакция: звезда взрывается и разбрасывает еду
             int ft = std::max(0, o.tier - 1);
             for (int k = 0; k < 9; k++) {
                 float a = k * 0.698f + rnd(0, 0.4f);
                 Obj f = makeObj(ft, {o.p.x + std::cos(a) * o.size * 1.5f, o.p.y + std::sin(a) * o.size * 1.5f});
                 f.v = {std::cos(a) * o.size * 2, std::sin(a) * o.size * 2};
+                f.fragment = true;
                 objs.push_back(f);
             }
             events.push_back({EvType::Chain, 0, o.tier, o.p});
@@ -595,7 +714,7 @@ void Game::nova()
     // Сверхновая: всё крупное поблизости раскалывается на съедобные осколки.
     int ft = 0;
     for (int k = 0; k < kTierCount; k++)
-        if (kTiers[k].size < R * st_.eat * 0.8f) ft = k;
+        if (kTiers[k].size < R * rs_.eat * 0.8f) ft = k;
     float vr = viewRadius();
     std::vector<Obj> shards;
     for (auto &o : objs) {
@@ -609,11 +728,87 @@ void Game::nova()
             float a = rnd(0, 6.2832f);
             Obj f = makeObj(ft, {o.p.x + std::cos(a) * o.size * 0.6f, o.p.y + std::sin(a) * o.size * 0.6f});
             f.v = {std::cos(a) * o.size, std::sin(a) * o.size};
-            shards.push_back(f);
+            f.fragment = true;
+            if (objs.size() + shards.size() < 700) shards.push_back(f);
         }
     }
     for (auto &f : shards) objs.push_back(f);
     events.push_back({EvType::Nova, (double)shards.size(), 0, pos});
+}
+
+void Game::evolveCheck()
+{
+    if (choosing || evoLevel >= rs_.evo) return;
+    // ступени роста за заход: от ×1.3 до почти ×3 стартового радиуса
+    float thr = 1 + (evoLevel + 1) * 1.9f / (rs_.evo + 0.5f);
+    if (R < st_.size * thr) return;
+    choosing = true;
+    choices.clear();
+    std::vector<int> pool;
+    for (int c = 0; c < CARD_COUNT; c++) {
+        if (c == CARD_SAT && rs_.sats >= 6) continue;
+        int w = kCards[c].rarity == 0 ? 6 : kCards[c].rarity == 1 ? 3 : 1;
+        for (int k = 0; k < w; k++) pool.push_back(c);
+    }
+    while ((int)choices.size() < rs_.cards && !pool.empty()) {
+        int c = pool[(int)(rnd() * pool.size()) % (int)pool.size()];
+        choices.push_back(c);
+        pool.erase(std::remove(pool.begin(), pool.end(), c), pool.end());
+    }
+    events.push_back({EvType::Evolve, (double)evoLevel, 0, pos});
+}
+
+bool Game::chooseCard(int i)
+{
+    if (!choosing || i < 0 || i >= (int)choices.size()) return false;
+    int c = choices[i];
+    choosing = false;
+    evoLevel++;
+    picked.push_back(c);
+    applyCard(c);
+    events.push_back({EvType::CardPick, 0, c, pos});
+    evolveCheck();
+    return true;
+}
+
+void Game::applyCard(int c)
+{
+    switch (c) {
+    case CARD_PULL: rs_.pull *= 1.35; break;
+    case CARD_SPEED: rs_.speed *= 1.25; break;
+    case CARD_CHAIN: rs_.chain += 0.35; break;
+    case CARD_SAT: rs_.sats += 1; break;
+    case CARD_TIME: addTime(6); break;
+    case CARD_MAGNET: magnetLeft = 8; break;
+    case CARD_TEETH: rs_.eat += 0.05; break;
+    case CARD_GREED: rs_.value *= 1.25; break;
+    case CARD_CRIT: rs_.crit += 0.10; break;
+    case CARD_ARMOR: rs_.armor = std::min(0.85, rs_.armor + 0.35); break;
+    case CARD_FEAST: rs_.comboMax += 0.5; break;
+    case CARD_NOVA: nova(); break;
+    case CARD_HUNGER: rs_.hunger *= 1.6; hunger = std::min(0.99, hunger + 0.5); break;
+    }
+}
+
+void Game::questProgress(QuestType t, double v, bool absolute)
+{
+    for (auto &q : quests) {
+        if (q.type != t || q.done) continue;
+        q.progress = absolute ? std::max(q.progress, v) : q.progress + v;
+        if (q.progress >= q.target) {
+            q.done = true;
+            q.progress = q.target;
+            int best = 0;
+            for (int k = 0; k < kTierCount; k++)
+                if (kTiers[k].size < R * rs_.eat) best = k;
+            double reward = tierValue(best) * 6;
+            mass += reward;
+            total += reward;
+            runMass += reward;
+            dark += 1;
+            events.push_back({EvType::QuestDone, reward, (int)t, pos});
+        }
+    }
 }
 
 void Game::nextUniverse()
@@ -625,14 +820,18 @@ void Game::nextUniverse()
 
 void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
 {
-    if (phase != Phase::Run) return;
+    if (phase != Phase::Run || choosing) return;  // выбор карты эволюции ставит игру на паузу
     runTime += dt;
+    hyperLeft = std::max(0.0, hyperLeft - dt);
+    noHitTime += dt;
+    questProgress(Q_NOHIT, noHitTime, true);
     playTime += dt;
     magnetLeft = std::max(0.0, magnetLeft - dt);
     doubleLeft = std::max(0.0, doubleLeft - dt);
     if (chronoLeft > 0) chronoLeft = std::max(0.0, chronoLeft - dt);  // хроносфера: время стоит
     else timeLeft -= dt;
     hurtFlash = std::max(0.0, hurtFlash - dt * 3);
+    timeLeft = std::min(timeLeft, kMaxRunTime - runTime);  // жёсткий предел: 30 секунд на заход
     if (comboTimer > 0) {
         comboTimer -= dt;
         if (comboTimer <= 0) combo = 0;
@@ -643,7 +842,7 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
     collapseLeft = std::max(0.0, collapseLeft - dt);
 
     float zoom = zoomFor(R);
-    float speed = 300 * (float)st_.speed / zoom;  // постоянная скорость в пикселях экрана
+    float speed = 300 * (float)rs_.speed / zoom;  // постоянная скорость в пикселях экрана
 
     // Движение к курсору
     Vec d = {target.x - pos.x, target.y - pos.y};
@@ -653,14 +852,14 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
         float k = std::min(1.0f, dist / (R * 3)) * speed / dist;
         want = {d.x * k, d.y * k};
     }
-    if (wantDash && st_.dash && dashCd <= 0 && dist > 1) {
-        dashCd = st_.dashCd;
+    if (wantDash && rs_.dash && dashCd <= 0 && dist > 1) {
+        dashCd = rs_.dashCd;
         dashLeft = 0.3;
         vel = {d.x / dist * speed * 4, d.y / dist * speed * 4};
         events.push_back({EvType::Dash, 0, 0, pos});
     }
-    if (wantCollapse && st_.collapse && collapseCd <= 0) {
-        collapseCd = st_.collapseCd;
+    if (wantCollapse && rs_.collapse && collapseCd <= 0) {
+        collapseCd = rs_.collapseCd;
         collapseLeft = 1.6;
         events.push_back({EvType::Collapse, 0, 0, pos});
     }
@@ -671,11 +870,11 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
     pos.y += vel.y * (float)dt;
 
     // Объекты
-    float pullR = R * 2.4f * (float)st_.pull * (magnetLeft > 0 ? 2.5f : 1.0f);
+    float pullR = R * 2.4f * (float)rs_.pull * (magnetLeft > 0 ? 2.5f : 1.0f) * (hyperLeft > 0 ? 2.0f : 1.0f);
     float vr = viewRadius();
-    float pickR = R * 3.0f * (float)st_.magnet;
+    float pickR = R * 3.0f * (float)rs_.magnet;
     satAngle += (float)dt * 2.2f;
-    float satR = R * 0.22f * (float)st_.satSize;
+    float satR = R * 0.22f * (float)rs_.satSize;
 
     for (size_t i = 0; i < objs.size(); i++) {
         Obj &o = objs[i];
@@ -688,8 +887,8 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
         if (collapseLeft > 0 && edible && dd < vr) range = vr;
         o.pulled = edible && dd < range;
         if (o.pulled) {
-            float strength = (dd < pullR ? 1 - dd / range : 0.3f) * 9 * (float)st_.pullStr * (magnetLeft > 0 ? 2.0f : 1.0f);
-            if (collapseLeft > 0) strength = std::max(strength, 4.0f * (float)st_.collapsePow);
+            float strength = (dd < pullR ? 1 - dd / range : 0.3f) * 9 * (float)rs_.pullStr * (magnetLeft > 0 ? 2.0f : 1.0f);
+            if (collapseLeft > 0) strength = std::max(strength, 4.0f * (float)rs_.collapsePow);
             float acc = strength * speed;
             o.v.x += dx / dd * acc * (float)dt;
             o.v.y += dy / dd * acc * (float)dt;
@@ -730,16 +929,15 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
 
         if (o.kind == K_CORE) {
             float contact = R + o.size * 0.85f;
-            bool canBite = R * st_.eat >= o.size * kBiteRatio;
+            bool canBite = R * st_.eat >= o.size * kBiteRatio;  // по постоянной прокачке, без карт и безумия
             if (dd < contact) {
                 if (canBite) {
                     // кусаем Ядро: чем мы крупнее, тем быстрее
-                    float rate = kBiteRate * (float)st_.bite * (R * (float)st_.eat / o.size);
+                    float rate = kBiteRate * (float)rs_.bite * (R * (float)rs_.eat / o.size);
                     o.hp -= rate * (float)dt;
-                    timeLeft += dt * 0.5;  // пока кусаем, испарение вдвое медленнее
                     int t = 0;
                     for (int k = 0; k < kTierCount; k++)
-                        if (kTiers[k].size < R * st_.eat) t = k;
+                        if (kTiers[k].size < R * rs_.eat) t = k;
                     double v = tierValue(t) * 4 * dt * (doubleLeft > 0 ? 2 : 1);
                     mass += v; total += v; runMass += v;
                     biteFx_ -= dt;
@@ -793,9 +991,9 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
             }
         }
         // Спутники
-        if (st_.sats > 0 && o.kind == K_TIER && o.size < satR * 1.4f) {
-            for (int s = 0; s < st_.sats; s++) {
-                float a = satAngle + s * 6.2832f / st_.sats;
+        if (rs_.sats > 0 && o.kind == K_TIER && o.size < satR * 1.4f) {
+            for (int s = 0; s < rs_.sats; s++) {
+                float a = satAngle + s * 6.2832f / rs_.sats;
                 float sx = pos.x + std::cos(a) * R * 2.0f, sy = pos.y + std::sin(a) * R * 2.0f;
                 float ex = sx - o.p.x, ey = sy - o.p.y;
                 if (ex * ex + ey * ey < satR * satR * 1.6f) {
@@ -807,6 +1005,8 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
     }
     objs.erase(std::remove_if(objs.begin(), objs.end(), [](const Obj &o) { return o.dead; }), objs.end());
     if (phase != Phase::Run) return;  // победа
+    questProgress(Q_GROW, R / rs_.size, true);
+    evolveCheck();
 
     clockCd_ = std::max(0.0, clockCd_ - dt);
     darkCd_ = std::max(0.0, darkCd_ - dt);
@@ -819,14 +1019,14 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
     }
 
     if (timeLeft <= 0) {
-        if (!loopUsed && st_.loop > 0 && rnd() < st_.loop) {
+        if (!loopUsed && rs_.loop > 0 && runTime < kMaxRunTime - 1 && rnd() < rs_.loop) {
             loopUsed = true;
-            timeLeft = 8;
+            timeLeft = std::min(8.0, kMaxRunTime - runTime);
             events.push_back({EvType::LoopSave, 8, 0, pos});
             return;
         }
         timeLeft = 0;
-        double interest = mass * st_.interest;
+        double interest = mass * rs_.interest;
         mass += interest;
         total += interest;
         phase = Phase::RunEnd;

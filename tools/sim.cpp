@@ -17,7 +17,7 @@ int main(int argc, char **argv)
     if (argc > 4) kLevelGrowthAdd = atof(argv[4]);
     if (argc > 5) kGrowthK = (float)atof(argv[5]);
     if (getenv("CAPCOST")) kCapCost = atof(getenv("CAPCOST"));
-    const double treeTime = 12;  // сколько живой игрок проводит в дереве между заходами
+    const double treeTime = 12 + 4;  // дерево + выбор карт в заходе  // сколько живой игрок проводит в дереве между заходами
     unsigned seed = getenv("SEED") ? atoi(getenv("SEED")) : 11;
     Game g(seed);
     srand(seed);
@@ -64,6 +64,7 @@ int main(int argc, char **argv)
                 target.x += avoid.x * skill;
                 target.y += avoid.y * skill;
             }
+            if (g.choosing) g.chooseCard(rand() % (int)g.choices.size());  // эволюция: случайная карта
             g.update(dt, target, skill > 0.5, true);
             if (getenv("DBG")) for (auto &e : g.events) if (e.type == EvType::CoreEaten || e.type == EvType::Win) printf("  core eaten t=%.1f R=%.0f univ=%d\n", g.runTime, g.R, g.universe);
             g.events.clear();

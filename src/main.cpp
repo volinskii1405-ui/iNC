@@ -147,7 +147,7 @@ Font loadFont(const unsigned char *data, int size)
     std::vector<int> cps;
     for (int c = 32; c < 127; c++) cps.push_back(c);
     for (int c = 0x400; c < 0x460; c++) cps.push_back(c);
-    for (int c : {0xAB, 0xBB, 0xD7, 0xB0, 0x2014, 0x2013, 0x2026, 0x2022, 0x2192, 0x2605, 0x221E, 0x2191, 0x2713, 0x25C6, 0x25B6, 0x2212})
+    for (int c : {0xAB, 0xBB, 0xD7, 0xB0, 0x2014, 0x2013, 0x2026, 0x2022, 0x2192, 0x2605, 0x221E, 0x2191, 0x2713, 0x25C6, 0x25B6, 0x2212, 0x25CB, 0x2717})
         cps.push_back(c);
     Font f = LoadFontFromMemory(".ttf", data, size, 64, cps.data(), (int)cps.size());
     GenTextureMipmaps(&f.texture);
@@ -669,7 +669,7 @@ void drawRunWorld()
     drawBackground(hs, Rs, true);
 
     // радиус притяжения
-    float pullRs = g.R * 2.4f * (float)g.stats().pull * app.zoom;
+    float pullRs = g.R * 2.4f * (float)g.runStats().pull * (g.hyperLeft > 0 ? 2.0f : 1.0f) * app.zoom;
     for (int k = 0; k < 48; k++) {
         float a0 = k * 7.5f + app.t * 6;
         DrawRing(hs, pullRs - 1, pullRs, a0, a0 + 3.5f, 2, Fade(kDim, 0.18f));
@@ -680,7 +680,12 @@ void drawRunWorld()
     for (auto &o : g.objs) drawObj(o);
 
     float heat = Clamp(std::log10(g.R + 1) / 3.0f, 0, 1);
-    drawHoleAt(hs, Rs, heat, g.dashLeft > 0 ? 1.0f : 0.0f);
+    drawHoleAt(hs, Rs, heat, (g.dashLeft > 0 || g.hyperLeft > 0) ? 1.0f : 0.0f);
+    if (g.hyperLeft > 0) {
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)hs.x, (int)hs.y, Rs * 6, Fade({255, 40, 160, 255}, 0.25f + 0.1f * std::sin(app.t * 12)), {0, 0, 0, 0});
+        EndBlendMode();
+    }
 
     // спутники
     const Stats &st = g.stats();
@@ -721,22 +726,91 @@ void drawCoreArrow()
     }
 }
 
+void drawStatIcon(Stat s, Vector2 p, float r, Color c);
+
+Stat cardIcon(int c)
+{
+    static const Stat m[CARD_COUNT] = {ST_PULL, ST_SPEED, ST_CHAIN, ST_SAT, ST_TIME, ST_MAGNET, ST_EAT, ST_VALUE,
+                                       ST_CRIT, ST_ARMOR, ST_COMBO, ST_GOLD, ST_GROWTH};
+    return m[c];
+}
+
+Color rarityColor(int r) { return r == 0 ? Color{120, 200, 255, 255} : r == 1 ? Color{200, 120, 255, 255} : kGold; }
+
+const char *rarityName(int r) { return r == 0 ? "обычная" : r == 1 ? "редкая" : "эпическая"; }
+
+Rectangle cardRect(int i, int n)
+{
+    float w = 240, gap = 24, total = n * w + (n - 1) * gap;
+    return {640 - total / 2 + i * (w + gap), 190, w, 300};
+}
+
+void drawCards(Vector2 m)
+{
+    Game &g = app.game;
+    DrawRectangle(0, 0, (int)VW, (int)VH, Fade(BLACK, 0.6f));
+    textGlow("ЭВОЛЮЦИЯ!", 640, 92, 44, kText, CENTER, {150, 125, 255, 255});
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "Дыра выросла — выбери усиление на этот заход (%d/%d)", g.evoLevel + 1, g.runStats().evo);
+    text(buf, 640, 148, 18, kDim, CENTER);
+    int n = (int)g.choices.size();
+    for (int i = 0; i < n; i++) {
+        int c = g.choices[i];
+        const CardDef &cd = kCards[c];
+        Rectangle r = cardRect(i, n);
+        bool hov = hover(r, m);
+        if (hov) { r.y -= 8; SetMouseCursor(MOUSE_CURSOR_POINTING_HAND); }
+        Color rc = rarityColor(cd.rarity);
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)(r.x + r.width / 2), (int)(r.y + 90), 130, Fade(rc, hov ? 0.35f : 0.18f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawRectangleRounded(r, 0.08f, 8, {18, 14, 40, 245});
+        DrawRectangleRoundedLinesEx(r, 0.08f, 8, hov ? 3.5f : 2, rc);
+        drawStatIcon(cardIcon(c), {r.x + r.width / 2, r.y + 90}, 52, rc);
+        text(rarityName(cd.rarity), r.x + r.width / 2, r.y + 14, 13, rc, CENTER, true);
+        text(cd.name, r.x + r.width / 2, r.y + 158, 20, kText, CENTER, true);
+        // описание в две строки, если длинное
+        std::string d = cd.desc;
+        if (measure(d, 15).x > r.width - 24) {
+            size_t sp = d.find(' ', d.size() / 2);
+            if (sp == std::string::npos) sp = d.rfind(' ');
+            text(d.substr(0, sp), r.x + r.width / 2, r.y + 196, 15, kDim, CENTER);
+            text(d.substr(sp + 1), r.x + r.width / 2, r.y + 216, 15, kDim, CENTER);
+        } else {
+            text(d, r.x + r.width / 2, r.y + 196, 15, kDim, CENTER);
+        }
+        text(std::to_string(i + 1), r.x + r.width / 2, r.y + r.height - 38, 22, Fade(rc, 0.8f), CENTER, true);
+    }
+    text("Клик по карте или клавиши 1–" + std::to_string(n), 640, 530, 16, Fade(kText, 0.7f), CENTER);
+}
+
 void drawRunHud()
 {
     Game &g = app.game;
-    const Stats &st = g.stats();
-    // таймер испарения
-    float maxT = (float)std::max(st.time * 2, g.timeLeft);
-    float k = (float)(g.timeLeft / st.time);
+    const Stats &st = g.runStats();
+    // таймер испарения: заход не длится больше 30 секунд
+    float k = (float)(g.timeLeft / kMaxRunTime);
     Rectangle bar = {380, 16, 520, 18};
     DrawRectangleRounded(bar, 1, 8, {20, 18, 44, 220});
-    Color tc = g.timeLeft < 5 ? lerpColor(kBad, WHITE, 0.5f + 0.5f * std::sin(app.t * 14)) : lerpColor(kBad, kTimeC, Clamp(k * 2, 0, 1));
-    float w = bar.width * Clamp((float)g.timeLeft / maxT * 2, 0, 1);
+    Color tc = g.timeLeft < 5 ? lerpColor(kBad, WHITE, 0.5f + 0.5f * std::sin(app.t * 14)) : lerpColor(kBad, kTimeC, Clamp(k * 3, 0, 1));
+    float w = bar.width * Clamp(k, 0, 1);
     if (w > 2) DrawRectangleRounded({bar.x, bar.y, w, bar.height}, 1, 8, tc);
     char buf[128];
     std::snprintf(buf, sizeof buf, "%.1f с до испарения", std::max(0.0, g.timeLeft));
     textShadow(buf, 640, bar.y + 22, 16, tc);
     if (g.hurtFlash > 0) DrawRectangleRoundedLinesEx(bar, 1, 8, 3, Fade(kBad, (float)g.hurtFlash));
+
+    // голод → гиперпоглощение
+    Rectangle hb = {480, 64, 320, 9};
+    if (g.hyperLeft > 0) {
+        float pk = 0.5f + 0.5f * std::sin(app.t * 16);
+        std::snprintf(buf, sizeof buf, "ГИПЕРПОГЛОЩЕНИЕ  %.1f с", g.hyperLeft);
+        textGlow(buf, 640, 58, 22, lerpColor({255, 80, 200, 255}, WHITE, pk), CENTER, {255, 40, 120, 255});
+    } else {
+        DrawRectangleRounded(hb, 1, 6, {30, 14, 40, 220});
+        if (g.hunger > 0.01) DrawRectangleRounded({hb.x, hb.y, hb.width * (float)g.hunger, hb.height}, 1, 6, lerpColor({200, 60, 160, 255}, {255, 90, 200, 255}, (float)g.hunger));
+        text("ГОЛОД", hb.x - 8, hb.y - 3, 12, Fade({255, 120, 210, 255}, 0.9f), RIGHT, true);
+    }
 
     // масса
     DrawRectangleGradientH(0, 0, 360, 100, Fade(kBg, 0.85f), {0, 0, 0, 0});
@@ -744,14 +818,41 @@ void drawRunHud()
     text("за заход  •  всего " + fmtNum(g.mass), 26, 54, 15, kDim);
     std::snprintf(buf, sizeof buf, "Размер %.0f  •  рекорд %.0f", g.R, g.bestR);
     text(buf, 26, 74, 15, kDim);
+    // задания захода
+    DrawRectangleGradientH(0, 100, 400, 56, Fade(kBg, 0.75f), {0, 0, 0, 0});
+    for (int q = 0; q < 2; q++) {
+        const Quest &qs = g.quests[q];
+        std::string t = (qs.done ? "✓ " : "○ ") + questText(qs);
+        if (!qs.done && qs.target > 1) {
+            char b2[48];
+            if (qs.type == Q_GROW) std::snprintf(b2, sizeof b2, "  (×%.1f)", qs.progress);
+            else std::snprintf(b2, sizeof b2, "  (%.0f/%.0f)", std::floor(qs.progress), qs.target);
+            t += b2;
+        }
+        text(t, 26, 104 + q * 22, 15, qs.done ? kGood : kText, LEFT, qs.done);
+    }
 
     // тёмная материя
     DrawPoly({VW - 34, 30}, 4, 10, app.t * 40, kDarkC);
     text(fmtNum(g.dark), VW - 52, 19, 22, kDarkC, RIGHT, true);
     std::snprintf(buf, sizeof buf, "%s  •  заход %d", kUniverses[g.universe].name, g.runs);
     text(buf, VW - 24, 48, 14, kDim, RIGHT);
-    // активные артефакты
     float ay = 72;
+    if (g.modifier != MOD_NONE) {
+        text(std::string("Аномалия: ") + kModifiers[g.modifier].name, VW - 24, ay, 15, kAccent, RIGHT, true);
+        ay += 22;
+    }
+    // взятые карты
+    if (!g.picked.empty()) {
+        for (size_t i = 0; i < g.picked.size(); i++) {
+            Vector2 cp = {24 + i * 34.0f, VH - 30};
+            Color rc = rarityColor(kCards[g.picked[i]].rarity);
+            DrawCircleV(cp, 14, {18, 14, 40, 230});
+            DrawRing(cp, 13, 15, 0, 360, 24, rc);
+            drawStatIcon(cardIcon(g.picked[i]), cp, 14, rc);
+        }
+    }
+    // активные артефакты
     auto artifact = [&](const char *name, double left, Color c) {
         if (left <= 0) return;
         char b2[64];
@@ -783,6 +884,7 @@ void drawRunHud()
         text(cd > 0 ? std::to_string((int)std::ceil(cd)) + " с" : name, r.x + 52, r.y + 25, 16, cd > 0 ? kDim : kText, CENTER, true);
         x += 116;
     };
+    (void)st;
     if (st.dash) ability("ПРОБЕЛ / ПКМ", "Рывок", g.dashCd, st.dashCd, {150, 125, 255, 255}, g.dashLeft);
     if (st.collapse) ability("Q", "Коллапс", g.collapseCd, st.collapseCd, kAccent, g.collapseLeft);
 
@@ -810,7 +912,7 @@ void drawRunEnd()
     Game &g = app.game;
     float k = Clamp(app.runEndT * 3, 0, 1);
     DrawRectangle(0, 0, (int)VW, (int)VH, Fade(BLACK, 0.55f * k));
-    Rectangle r = {390, 140 + (1 - k) * 40, 500, 420};
+    Rectangle r = {370, 110 + (1 - k) * 40, 540, 480};
     DrawRectangleRounded(r, 0.08f, 8, Fade({14, 12, 32, 255}, 0.95f * k));
     DrawRectangleRoundedLinesEx(r, 0.08f, 8, 2, Fade(kTimeC, k));
     textGlow("ДЫРА ИСПАРИЛАСЬ", 640, r.y + 22, 32, Fade(kText, k), CENTER, Fade(kTimeC, k));
@@ -828,6 +930,8 @@ void drawRunEnd()
     std::snprintf(buf, sizeof buf, "%.0f", g.bestR);
     row("Рекорд размера", buf, g.bestR > app.runStartBest ? kGood : kText);
     if (app.lastInterest > 0) row("Сложный процент", "+" + fmtNum(app.lastInterest), kGold);
+    for (int q = 0; q < 2; q++)
+        row((g.quests[q].done ? "✓ " : "✗ ") + questText(g.quests[q]), g.quests[q].done ? "+1 ◆" : "—", g.quests[q].done ? kGood : kDim);
     row("Всего массы", fmtNum(g.mass));
     int aff = g.affordableCount();
     if (aff > 0) {
@@ -1013,7 +1117,7 @@ void drawTree(Vector2 m, int &hovered)
 
     // статы слева
     const Stats &st = g.stats();
-    Rectangle pr = {14, 78, 236, 352};
+    Rectangle pr = {14, 78, 236, 374};
     DrawRectangleRounded(pr, 0.06f, 8, kPanel);
     DrawRectangleRoundedLinesEx(pr, 0.06f, 8, 1.2f, kPanelEdge);
     text("ТВОЯ ДЫРА", pr.x + 14, pr.y + 10, 15, kDim, LEFT, true);
@@ -1024,7 +1128,7 @@ void drawTree(Vector2 m, int &hovered)
         y += 21;
     };
     std::snprintf(buf, sizeof buf, "%.0f", st.size); row("Стартовый размер", buf);
-    std::snprintf(buf, sizeof buf, "%.0f с", st.time); row("Время захода", buf);
+    std::snprintf(buf, sizeof buf, "%.0f / 30 с", st.time); row("Время захода", buf);
     std::snprintf(buf, sizeof buf, "×%.2f", st.speed); row("Скорость", buf);
     std::snprintf(buf, sizeof buf, "×%.2f", st.pull); row("Притяжение", buf);
     std::snprintf(buf, sizeof buf, "до %.0f%% себя", st.eat * 100); row("Можно съесть", buf);
@@ -1036,6 +1140,7 @@ void drawTree(Vector2 m, int &hovered)
     row("Рывок / коллапс", std::string(st.dash ? "да" : "нет") + " / " + (st.collapse ? "да" : "нет"));
     std::snprintf(buf, sizeof buf, "%.0f%%", st.armor * 100); row("Защита", buf);
     std::snprintf(buf, sizeof buf, "×%.2f", st.bite); row("Укус ядра", buf);
+    std::snprintf(buf, sizeof buf, "%d по %d карты", st.evo, st.cards); row("Эволюций за заход", buf);
 
     text("Колесо — масштаб, перетаскивай — двигать", 20, VH - 30, 13, Fade(kDim, 0.8f));
 
@@ -1198,6 +1303,30 @@ void handleEvents()
             shockW(g.pos, 900, pc[k], 0.9f, 18);
             break;
         }
+        case EvType::Evolve:
+            app.audio.play(SFX_RANK, 1.4f, 0.8f);
+            shockW(g.pos, 800, {150, 125, 255, 255}, 0.8f, 16);
+            break;
+        case EvType::CardPick:
+            app.audio.play(SFX_NODE, 1.2f);
+            banner("КАРТА", kCards[e.index].name, rarityColor(kCards[e.index].rarity));
+            break;
+        case EvType::Hyper:
+            app.audio.play(SFX_FRENZY, 0.8f);
+            app.audio.play(SFX_WAVE, 1.4f, 0.6f);
+            banner("ГИПЕРПОГЛОЩЕНИЕ", "Ешь крупное, масса ×2!", {255, 80, 200, 255});
+            shockW(g.pos, 1100, {255, 60, 180, 255}, 1.0f, 26);
+            addShake(10);
+            break;
+        case EvType::QuestDone: {
+            app.audio.play(SFX_ACH, 1.1f);
+            Vector2 sp = toScreen(g.pos);
+            floatText({sp.x, sp.y - screenR() - 46}, "ЗАДАНИЕ ВЫПОЛНЕНО! +" + fmtNum(e.value) + " и +1 ◆", kGood, 22, 2.0f);
+            break;
+        }
+        case EvType::Modifier:
+            banner("АНОМАЛИЯ ЗАХОДА", std::string(kModifiers[e.index].name) + " — " + kModifiers[e.index].desc, kAccent);
+            break;
         case EvType::Nova:
             app.audio.play(SFX_WAVE, 0.8f);
             shockW(g.pos, 1500, {255, 160, 60, 255}, 1.2f, 40);
@@ -1330,8 +1459,8 @@ void drawIntro()
     textGlow("ГОРИЗОНТ СОБЫТИЙ", 640, 70, 64, kText, CENTER, {150, 125, 255, 255});
     text("инкрементальная игра про чёрную дыру", 640, 146, 22, kDim, CENTER);
     text("Веди дыру мышкой и поглощай всё, что меньше тебя: от пыли до сверхскоплений галактик.", 640, 560, 18, kText, CENTER);
-    text("Дыра испаряется — между заходами качай созвездие из 89 улучшений, лови артефакты.", 640, 584, 18, kText, CENTER);
-    text("Откуси Ядро каждой из 4 вселенных. Около 13 минут.", 640, 608, 18, kText, CENTER);
+    text("Заход длится до 30 секунд: эволюционируй картами, впадай в гиперпоглощение, выполняй задания.", 640, 584, 18, kText, CENTER);
+    text("Между заходами качай созвездие. Откуси Ядро каждой из 4 вселенных. Около 10 минут.", 640, 608, 18, kText, CENTER);
     if (std::fmod(app.t, 1.0f) < 0.7f) textGlow("Кликни, чтобы начать", 640, 650, 28, kGold, CENTER, kAccent);
 }
 
@@ -1457,6 +1586,27 @@ void devScene(const std::string &scene)
         app.zoom = g.zoomFor(g.R);
     }
     if (scene == "runend") { g.timeLeft = 0.01; }
+    if (scene == "cards" || scene == "hyper") {
+        buyRounds(5e4, 4);
+        g.runs = 4;
+        startRun();
+        for (int k = 0; k < 90 && g.phase == Phase::Run; k++) {
+            if (g.choosing) g.chooseCard(0);
+            Vec target = g.pos;
+            float best = 1e30f;
+            for (auto &o : g.objs)
+                if (g.canEat(o) && o.kind == K_TIER) {
+                    float d = std::hypot(o.p.x - g.pos.x, o.p.y - g.pos.y) / (o.size + 1);
+                    if (d < best) { best = d; target = o.p; }
+                }
+            g.update(1.0 / 30, target, false, false);
+        }
+        g.events.clear();
+        app.cam = {g.pos.x, g.pos.y};
+        app.zoom = g.zoomFor(g.R);
+        if (scene == "cards") { g.choosing = true; g.choices = {CARD_PULL, CARD_SAT, CARD_CHAIN}; }
+        if (scene == "hyper") { g.hyperLeft = 3; g.hunger = 0; }
+    }
     if (scene == "uni") { buyRounds(3e8, 20); g.phase = Phase::UniverseClear; app.screen = Screen::UniverseIntro; app.uniT = 2; }
     if (scene == "core" || scene == "power") {
         buyRounds(scene == "core" ? 1e10 : 3e6, 30);
@@ -1547,6 +1697,16 @@ int main()
             break;
         case Screen::Run: {
             app.realTime += dt;
+            if (g.choosing) {
+                int n = (int)g.choices.size();
+                for (int i = 0; i < n; i++) {
+                    if (keyHit(KEY_ONE + i) || (gClicks > 0 && hover(cardRect(i, n), m))) {
+                        g.chooseCard(i);
+                        break;
+                    }
+                }
+                break;  // пауза: мир стоит, пока выбираешь
+            }
             Vec target = toWorld(m);
             bool dash = keyHit(KEY_SPACE) || gRight > 0;
             bool col = keyHit(KEY_Q);
@@ -1628,6 +1788,7 @@ int main()
             BeginMode2D(ui);
             drawFloats();
             if (app.screen == Screen::Run) drawRunHud();
+            if (app.screen == Screen::Run && g.choosing) drawCards(m);
             drawBanner();
             if (app.screen == Screen::RunEnd) drawRunEnd();
             if (app.screen == Screen::Collapse) DrawRectangle(0, 0, (int)VW, (int)VH, Fade(WHITE, Clamp((app.collapseT - 3.5f), 0, 1)));
