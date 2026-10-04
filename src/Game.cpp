@@ -8,7 +8,10 @@
 namespace bh {
 
 double kRingCost = 3.0, kLevelGrowthAdd = 0.5;
-float kGrowthK = 0.45f;  // рост за заход: R = R0·(1 + k·ln(1 + съеденная площадь / R0²))
+float kGrowthK = 0.45f;
+float kBiteRatio = 0.5f, kBiteRate = 0.12f;
+float kMaxGrowth = 3.0f;
+double kCapCost = 50;  // за один заход дыра вырастает не больше чем втрое  // Ядро: с какого размера можно кусать и как быстро  // рост за заход: R = R0·(1 + k·ln(1 + съеденная площадь / R0²))
 
 const std::array<TierDef, kTierCount> kTiers = {{
     {"Космическая пыль",    4,   1},
@@ -21,7 +24,16 @@ const std::array<TierDef, kTierCount> kTiers = {{
     {"Звёздное скопление",  100, 400},
     {"Галактика",           160, 900},
     {"Сверхскопление",      260, 2100},
-    {"Ядро Вселенной",      520, 0},
+    {"Квазар",              420, 5000},
+    {"Великая стена",       680, 12000},
+    {"Пузырь Хаббла",       1100, 28000},
+}};
+
+const std::array<UniverseDef, kUniverseCount> kUniverses = {{
+    {"Млечная вселенная",     "Дом, милый дом", 1, 520,  1.0f},
+    {"Кристальная вселенная", "Объекты ×3, опасностей больше", 3, 4800,  1.25f},
+    {"Огненная вселенная",    "Объекты ×9, Ядро ещё крупнее", 9, 6800, 1.5f},
+    {"Квантовая пена",        "Последняя. Объекты ×27", 27, 7800, 1.75f},
 }};
 
 namespace {
@@ -57,6 +69,8 @@ const RawNode kRaw[] = {
     {"Мега-коллапс", "Коллапс сильнее на 50%, перезарядка −15%", ST_COLLAPSEPOW, 0.5, 0, 4, 4e4, 2.2, "Гравитационный коллапс", Branch::Gravity, 5, 11},
     {"Пожиратель", "Можно есть объекты на 5% крупнее", ST_EAT, 0.05, 0, 3, 1e5, 2.5, "Горизонт Керра", Branch::Gravity, 5, 22},
     {"Сингулярный разгон", "+20% радиус притяжения", ST_PULL, 0.20, 0, 5, 5e5, 2.0, "Сверхтекучесть", Branch::Gravity, 6, -6},
+    {"Укус горизонта", "Ядро кусается на 15% быстрее", ST_BITE, 0.15, 0, 5, 2e6, 2.0, "Пожиратель", Branch::Gravity, 6, 18},
+    {"Гравитационная линза", "+25% радиус притяжения", ST_PULL, 0.25, 0, 5, 3e6, 2.0, "Сингулярный разгон", Branch::Gravity, 7, -6},
 
     // Рост — стартовый размер, рост во время захода, спутники
     {"Масса покоя", "+3 к стартовому радиусу", ST_SIZE, 3, 0, 5, 15, 1.6, "Сингулярность", Branch::Growth, 1, 0},
@@ -73,6 +87,9 @@ const RawNode kRaw[] = {
     {"Третий спутник", "+1 спутник", ST_SAT, 1, 0, 1, 2e5, 1, "Второй спутник", Branch::Growth, 5, -11},
     {"Галактический старт", "+30 к стартовому радиусу", ST_SIZE, 30, 0, 5, 5e5, 2.0, "Звёздный старт", Branch::Growth, 5, 11},
     {"Четвёртый спутник", "+1 спутник", ST_SAT, 1, 0, 1, 3e6, 1, "Третий спутник", Branch::Growth, 6, -6},
+    {"Пищеварение звёзд", "+30% рост от поглощения", ST_GROWTH, 0.30, 0, 5, 2e6, 2.0, "Обжорство", Branch::Growth, 6, -18},
+    {"Вселенский старт", "+60 к стартовому радиусу", ST_SIZE, 60, 0, 5, 5e6, 2.0, "Галактический старт", Branch::Growth, 6, 18},
+    {"Пятый спутник", "+1 спутник", ST_SAT, 1, 0, 1, 3e7, 1, "Четвёртый спутник", Branch::Growth, 7, -6},
 
     // Время — длительность захода, часы, защита
     {"Стабильный горизонт", "+3 с к заходу", ST_TIME, 3, 0, 5, 12, 1.6, "Сингулярность", Branch::Time, 1, 0},
@@ -85,8 +102,10 @@ const RawNode kRaw[] = {
     {"Пожиратель времени", "Звезда и крупнее: +0.5 с", ST_TIMEFEED, 0.5, 0, 3, 2e4, 2.0, "Часовщик", Branch::Time, 4, -7},
     {"Антиматерия на ужин", "Антиматерию можно съесть — она ценная", ST_ANTIEAT, 1, 0, 1, 3e4, 1, "Отражение", Branch::Time, 4, 7},
     {"Петля времени", "+25% шанс второй жизни: +8 с в конце", ST_LOOP, 0.25, 0, 3, 3e5, 2.2, "Отражение", Branch::Time, 4, 21},
-    {"Вечность", "+5 с к заходу", ST_TIME, 5, 0, 5, 2e5, 2.0, "Замедление", Branch::Time, 5, -11},
-    {"Остановка времени", "+8 с к заходу", ST_TIME, 8, 0, 3, 3e6, 2.5, "Вечность", Branch::Time, 6, -6},
+    {"Вечность", "+3 с к заходу", ST_TIME, 3, 0, 5, 2e5, 2.0, "Замедление", Branch::Time, 5, -11},
+    {"Остановка времени", "+4 с к заходу", ST_TIME, 4, 0, 3, 3e6, 2.5, "Вечность", Branch::Time, 6, -6},
+    {"Хроносфера", "Артефакты действуют на 30% дольше", ST_POWERDUR, 0.30, 0, 3, 1e6, 2.2, "Петля времени", Branch::Time, 5, 11},
+    {"Бесконечность", "+5 с к заходу", ST_TIME, 5, 0, 3, 3e7, 2.5, "Остановка времени", Branch::Time, 7, -6},
 
     // Богатство — ценность добычи
     {"Плотная материя", "+25% масса от всего", ST_VALUE, 0.25, 0, 5, 15, 1.6, "Сингулярность", Branch::Wealth, 1, 0},
@@ -102,6 +121,8 @@ const RawNode kRaw[] = {
     {"Галактические богатства", "+60% масса скоплений и галактик", ST_TIERVAL, 0.6, 7, 5, 2e5, 2.0, "Звёздная кузня", Branch::Wealth, 5, -11},
     {"Квазарный блеск", "+50% масса от всего", ST_VALUE, 0.50, 0, 5, 8e5, 2.0, "Золотая лихорадка", Branch::Wealth, 5, 11},
     {"Нобелевка Хокинга", "Масса от всего ×2", ST_VALUEX, 2, 0, 3, 5e6, 3.0, "Квазарный блеск", Branch::Wealth, 6, 6},
+    {"Вселенские богатства", "+60% масса квазаров, стен и пузырей", ST_TIERVAL, 0.6, 10, 5, 3e6, 2.0, "Галактические богатства", Branch::Wealth, 6, -18},
+    {"Мультивселенский капитал", "Масса от всего ×2", ST_VALUEX, 2, 0, 3, 5e7, 3.0, "Нобелевка Хокинга", Branch::Wealth, 7, 6},
 
     // Космос — что встречается в космосе
     {"Плотная туманность", "+20% объектов вокруг", ST_DENSITY, 0.20, 0, 5, 20, 1.6, "Сингулярность", Branch::Cosmos, 1, 0},
@@ -116,18 +137,23 @@ const RawNode kRaw[] = {
     {"Богатая Вселенная", "Крупные объекты попадаются чаще", ST_RICH, 0.06, 0, 5, 8e4, 2.0, "Охота на соперников", Branch::Cosmos, 4, 21},
     {"Плотная Вселенная", "+25% объектов вокруг", ST_DENSITY, 0.25, 0, 5, 4e5, 2.0, "Метеоритные рои", Branch::Cosmos, 5, -11},
     {"Космическая паутина", "Крупные объекты попадаются чаще", ST_RICH, 0.08, 0, 3, 1e6, 2.5, "Богатая Вселенная", Branch::Cosmos, 5, 11},
-    {"Ядро Вселенной", "В космосе появится Ядро Вселенной. Съешь его!", ST_FINAL, 1, 0, 1, 2.5e7, 1, "Космическая паутина", Branch::Cosmos, 6, 6},
+    {"Ядро Вселенной", "В космосе появится Ядро Вселенной — откуси его!", ST_FINAL, 1, 0, 1, 4e6, 1, "Космическая паутина", Branch::Cosmos, 6, 6},
+    {"Космические артефакты", "Артефакты попадаются чаще", ST_POWER, 0.004, 0, 5, 5000, 2.0, "Звёздные ясли", Branch::Cosmos, 5, 0},
+    {"Охотник за ядрами", "Ядро кусается на 15% быстрее", ST_BITE, 0.15, 0, 3, 5e6, 2.2, "Космическая паутина", Branch::Cosmos, 6, 18},
 
     // Тёмная материя — особые бонусы за вторую валюту
     {"Тёмный магнит", "Тёмная материя попадается чаще", ST_DARK, 0.004, 0, 3, 2, 1.5, "Сингулярность", Branch::Dark, 1, 0},
     {"Тёмное ускорение", "+20% скорость дыры", ST_SPEED, 0.20, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, -12},
     {"Тёмный рост", "+30% рост от поглощения", ST_GROWTH, 0.30, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, 12},
     {"Фантомный рывок", "Во время рывка опасности не ранят", ST_PHANTOM, 1, 0, 1, 6, 1, "Тёмное ускорение", Branch::Dark, 3, -18},
-    {"Тёмная корона", "+5 с к заходу", ST_TIME, 5, 0, 3, 5, 1.7, "Тёмное ускорение", Branch::Dark, 3, 0},
+    {"Тёмная корона", "+3 с к заходу", ST_TIME, 3, 0, 3, 5, 1.7, "Тёмное ускорение", Branch::Dark, 3, 0},
     {"Тёмное богатство", "Масса от всего ×1.5", ST_VALUEX, 1.5, 0, 3, 5, 1.8, "Тёмный рост", Branch::Dark, 3, 18},
     {"Тёмный спутник", "+1 спутник", ST_SAT, 1, 0, 1, 10, 1, "Тёмная корона", Branch::Dark, 4, -7},
     {"Тёмный горизонт", "Можно есть объекты на 8% крупнее", ST_EAT, 0.08, 0, 2, 12, 1.8, "Тёмное богатство", Branch::Dark, 4, 7},
     {"Тёмная энергия", "Масса от всего ×2", ST_VALUEX, 2, 0, 2, 20, 2.0, "Тёмный горизонт", Branch::Dark, 5, 0},
+    {"Тёмные артефакты", "Артефакты попадаются чаще", ST_POWER, 0.004, 0, 3, 8, 1.6, "Тёмный спутник", Branch::Dark, 5, -11},
+    {"Тёмный укус", "Ядро кусается на 25% быстрее", ST_BITE, 0.25, 0, 2, 15, 1.8, "Тёмный горизонт", Branch::Dark, 5, 11},
+    {"Тёмная вселенная", "Масса от всего ×2", ST_VALUEX, 2, 0, 3, 30, 2.0, "Тёмная энергия", Branch::Dark, 6, 0},
 };
 
 std::vector<NodeDef> buildNodes()
@@ -157,6 +183,7 @@ void Game::reset(uint32_t seed)
     mass = dark = total = playTime = 0;
     runs = 0;
     bestR = 0;
+    universe = 0;
     objs.clear();
     events.clear();
     recompute();
@@ -184,6 +211,7 @@ void Game::recompute()
         case ST_TIERVAL:
             for (int t = n.param; t < n.param + 2 && t < kTierCount; t++) s.tierVal[t] += v;
             if (n.param == 7) s.tierVal[9] += v;
+            if (n.param == 10) s.tierVal[12] += v;
             break;
         case ST_DENSITY: s.density += v; break;
         case ST_RICH: s.rich += v; break;
@@ -212,6 +240,9 @@ void Game::recompute()
         case ST_SWARM: s.swarm += l; break;
         case ST_PHANTOM: s.phantom = true; break;
         case ST_FINAL: s.final = true; break;
+        case ST_BITE: s.bite += v; break;
+        case ST_POWER: s.power += v; break;
+        case ST_POWERDUR: s.powerDur += v; break;
         }
         if (n.stat == ST_VALUEX) s.value *= std::pow(n.value, l);
     }
@@ -222,7 +253,9 @@ void Game::recompute()
 
 bool Game::nodeVisible(int i) const { return i == 0 || levels_[kNodes[i].parent] > 0; }
 
-bool Game::nodeAvailable(int i) const { return i > 0 && nodeVisible(i) && levels_[i] < kNodes[i].maxLevel; }
+int Game::levelCap(int i) const { return kNodes[i].maxLevel + (kNodes[i].maxLevel > 1 ? 2 * universe : 0); }
+
+bool Game::nodeAvailable(int i) const { return i > 0 && nodeVisible(i) && levels_[i] < levelCap(i); }
 
 double Game::nodeCost(int i) const
 {
@@ -230,6 +263,9 @@ double Game::nodeCost(int i) const
     if (n.branch == Branch::Dark) return std::floor(n.cost * std::pow(n.growth, levels_[i]));
     // Цены в массе дорожают быстрее у дальних колец созвездия.
     double c = n.cost * std::pow(kRingCost, std::max(0, n.ring - 1)) * std::pow(n.growth + kLevelGrowthAdd, levels_[i]);
+    // уровни сверх изначального предела (открываются в новых вселенных) — заметно дороже
+    int extra = levels_[i] - n.maxLevel + 1;
+    if (extra > 0) c *= std::pow(kCapCost, extra);
     return std::floor(c);
 }
 
@@ -278,28 +314,29 @@ bool Game::kindOnField(Kind k) const
 bool Game::canEat(const Obj &o) const
 {
     switch (o.kind) {
-    case K_CLOCK: case K_DARK: return true;
+    case K_CLOCK: case K_DARK: case K_MAGNET: case K_NOVA: case K_CHRONO: case K_DOUBLE: return true;
+    case K_CORE: return false;  // Ядро не глотают целиком — его кусают
     case K_ANTI: return st_.antiEat && o.size < R * st_.eat;
     case K_PULSAR: return o.size < R * st_.eat * 0.5f;  // пульсар плотный: нужна дыра вдвое крупнее
     default: return o.size < R * st_.eat;
     }
 }
 
-double Game::tierValue(int t) const { return kTiers[t].value * st_.tierVal[t] * st_.value; }
+double Game::tierValue(int t) const { return kTiers[t].value * st_.tierVal[t] * st_.value * kUniverses[universe].valueMult; }
 
 int Game::pickTier()
 {
     // Размеры вокруг текущего радиуса дыры: и еда, и препятствия покрупнее.
     float center = std::log(R * (0.55f + (float)st_.rich));
-    double w[kTierCount - 1], sum = 0;
-    for (int t = 0; t < kTierCount - 1; t++) {
+    double w[kTierCount], sum = 0;
+    for (int t = 0; t < kTierCount; t++) {
         float d = std::log(kTiers[t].size) - center;
         w[t] = std::exp(-d * d / (2 * 0.85f * 0.85f)) + (t < 2 ? 0.15 : 0);
         if (kTiers[t].size > R * 4) w[t] = 0;  // совсем гигантов не показываем
         sum += w[t];
     }
     double x = rnd() * sum;
-    for (int t = 0; t < kTierCount - 1; t++) {
+    for (int t = 0; t < kTierCount; t++) {
         x -= w[t];
         if (x <= 0) return t;
     }
@@ -333,6 +370,7 @@ void Game::spawnAround(bool initial)
         if (!o.dead) count++;
     int need = target - count;
     (void)area;
+    float hz = kUniverses[universe].hazard;
     for (int k = 0; k < need; k++) {
         float a = rnd(0, 6.2832f);
         float d = initial ? rnd(R * 3, vr * 1.25f) : rnd(vr * 1.05f, vr * 1.35f);
@@ -357,21 +395,30 @@ void Game::spawnAround(bool initial)
             float sa = rnd(0, 6.2832f);
             float sp = 260 / zoomFor(R);
             o.v = {std::cos(sa) * sp, std::sin(sa) * sp};
-        } else if (runs >= 2 && roll < st_.clock + st_.dark + st_.gold + 0.035f) {
+        } else if (roll < st_.clock + st_.dark + st_.gold + st_.power && powerCd_ <= 0 && !kindOnField(K_MAGNET) &&
+                   !kindOnField(K_NOVA) && !kindOnField(K_CHRONO) && !kindOnField(K_DOUBLE)) {
+            // артефакт: магнит, сверхновая, хроносфера или удвоитель
+            powerCd_ = 7;
+            o = makeObj(0, p);
+            static const Kind kinds[] = {K_MAGNET, K_NOVA, K_CHRONO, K_DOUBLE};
+            o.kind = kinds[(int)(rnd() * 4) % 4];
+            o.size = std::max(7.0f, R * 0.4f);
+            o.spin = 60;
+        } else if (runs >= 2 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.035f * hz) {
             o = makeObj(0, p);
             o.kind = K_ANTI;
             o.size = R * rnd(0.35f, 0.7f);
-        } else if (runs >= 4 && roll < st_.clock + st_.dark + st_.gold + 0.05f) {
+        } else if (runs >= 4 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.05f * hz) {
             o = makeObj(0, p);
             o.kind = K_PULSAR;
             o.size = R * rnd(0.4f, 1.2f);
             o.v = {0, 0};
             o.beam = rnd(0, 6.2832f);
-        } else if (runs >= 3 && roll < st_.clock + st_.dark + st_.gold + 0.065f) {
+        } else if (runs >= 3 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.065f * hz) {
             o = makeObj(0, p);
             o.kind = K_RIVAL;
             o.size = R * rnd(0.5f, 1.5f);
-        } else if (st_.swarm > 0 && roll < st_.clock + st_.dark + st_.gold + 0.065f + 0.02f * st_.swarm) {
+        } else if (st_.swarm > 0 && roll < st_.clock + st_.dark + st_.gold + st_.power + 0.065f * hz + 0.02f * st_.swarm) {
             // рой: несколько объектов помельче кучкой
             int tier = std::max(0, pickTier() - 1);
             for (int s = 0; s < 6; s++) {
@@ -409,12 +456,17 @@ void Game::startRun()
     clockCd_ = 3;
     darkCd_ = 2;
     goldCd_ = 6;
+    powerCd_ = 5;
+    biteFx_ = 0;
+    magnetLeft = chronoLeft = doubleLeft = 0;
     objs.clear();
     spawnAround(true);
     if (st_.final) {
         // Ядро Вселенной ждёт неподалёку
-        Obj core = makeObj(10, {R * 40, -R * 25});
-        core.size = kTiers[10].size;
+        Obj core = makeObj(0, {R * 22, -R * 14});
+        core.kind = K_CORE;
+        core.size = kUniverses[universe].coreSize;
+        core.hp = 1;
         core.v = {0, 0};
         core.spin = 6;
         objs.push_back(core);
@@ -424,7 +476,7 @@ void Game::startRun()
 
 void Game::addTime(double s)
 {
-    double room = st_.time - timeGained_;
+    double room = st_.time * 0.5 - timeGained_;
     double add = std::max(0.0, std::min(s, room));
     timeGained_ += add;
     timeLeft += add;
@@ -433,6 +485,7 @@ void Game::addTime(double s)
 void Game::hurt(double seconds, Vec at)
 {
     if (st_.phantom && dashLeft > 0) return;
+    if (chronoLeft > 0) return;  // хроносфера защищает
     double d = seconds * (1 - st_.armor);
     timeLeft -= d;
     hurtFlash = 1;
@@ -456,6 +509,15 @@ void Game::eat(Obj &target, bool bySat)
         dark += 1;
         events.push_back({EvType::Dark, 1, 0, o.p});
         return;
+    case K_MAGNET: case K_NOVA: case K_CHRONO: case K_DOUBLE: {
+        double dur = 7 * st_.powerDur;
+        if (o.kind == K_MAGNET) magnetLeft = dur;
+        if (o.kind == K_CHRONO) chronoLeft = dur * 0.8;
+        if (o.kind == K_DOUBLE) doubleLeft = dur;
+        if (o.kind == K_NOVA) nova();
+        events.push_back({EvType::PowerUp, dur, (int)o.kind, o.p});
+        return;
+    }
     default: break;
     }
 
@@ -464,13 +526,13 @@ void Game::eat(Obj &target, bool bySat)
     if (o.kind == K_GOLD) {
         // золотая комета: ×20 к лучшему из того, что сейчас по зубам
         int t = 0;
-        for (int k = 0; k < kTierCount - 1; k++)
+        for (int k = 0; k < kTierCount; k++)
             if (kTiers[k].size < R * st_.eat) t = k;
         v = tierValue(t) * 20;
         events.push_back({EvType::Gold, v, 0, o.p});
     } else if (o.kind == K_ANTI) {
         int t = 0;
-        for (int k = 0; k < kTierCount - 1; k++)
+        for (int k = 0; k < kTierCount; k++)
             if (kTiers[k].size < o.size) t = k;
         v = tierValue(t) * 8;
     } else if (o.kind == K_PULSAR) {
@@ -478,10 +540,6 @@ void Game::eat(Obj &target, bool bySat)
     } else if (o.kind == K_RIVAL) {
         v = 40 * std::pow(o.size, 1.6) * st_.value * st_.rival;
         events.push_back({EvType::RivalEaten, v, 0, o.p});
-    } else if (o.tier == 10) {
-        phase = Phase::Won;
-        events.push_back({EvType::Win, 0, 10, o.p});
-        return;
     } else {
         v = tierValue(o.tier);
     }
@@ -492,6 +550,7 @@ void Game::eat(Obj &target, bool bySat)
     }
     double cm = std::min(st_.comboMax, 1.0 + combo * 0.03);
     v *= cm;
+    if (doubleLeft > 0) v *= 2;
     if (rnd() < st_.crit) {
         v *= st_.critMult;
         e.crit = true;
@@ -510,7 +569,7 @@ void Game::eat(Obj &target, bool bySat)
     if (!bySat) {
         runArea_ += o.size * o.size * (float)st_.growth;
         float R0 = (float)st_.size;
-        R = R0 * (1 + kGrowthK * std::log(1 + runArea_ / (R0 * R0)));
+        R = R0 * std::min(kMaxGrowth, 1 + kGrowthK * std::log(1 + runArea_ / (R0 * R0)));
         bestR = std::max(bestR, (double)R);
     }
 
@@ -531,12 +590,48 @@ void Game::eat(Obj &target, bool bySat)
     }
 }
 
+void Game::nova()
+{
+    // Сверхновая: всё крупное поблизости раскалывается на съедобные осколки.
+    int ft = 0;
+    for (int k = 0; k < kTierCount; k++)
+        if (kTiers[k].size < R * st_.eat * 0.8f) ft = k;
+    float vr = viewRadius();
+    std::vector<Obj> shards;
+    for (auto &o : objs) {
+        if (o.dead || o.kind == K_CORE || canEat(o)) continue;
+        if (o.kind != K_TIER && o.kind != K_ANTI && o.kind != K_PULSAR && o.kind != K_RIVAL) continue;
+        float dx = o.p.x - pos.x, dy = o.p.y - pos.y;
+        if (dx * dx + dy * dy > vr * vr * 0.6f) continue;
+        o.dead = true;
+        int n = o.kind == K_TIER ? 7 : 3;
+        for (int k = 0; k < n; k++) {
+            float a = rnd(0, 6.2832f);
+            Obj f = makeObj(ft, {o.p.x + std::cos(a) * o.size * 0.6f, o.p.y + std::sin(a) * o.size * 0.6f});
+            f.v = {std::cos(a) * o.size, std::sin(a) * o.size};
+            shards.push_back(f);
+        }
+    }
+    for (auto &f : shards) objs.push_back(f);
+    events.push_back({EvType::Nova, (double)shards.size(), 0, pos});
+}
+
+void Game::nextUniverse()
+{
+    if (phase != Phase::UniverseClear) return;
+    universe = std::min(universe + 1, kUniverseCount - 1);
+    phase = Phase::Tree;
+}
+
 void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
 {
     if (phase != Phase::Run) return;
     runTime += dt;
     playTime += dt;
-    timeLeft -= dt;
+    magnetLeft = std::max(0.0, magnetLeft - dt);
+    doubleLeft = std::max(0.0, doubleLeft - dt);
+    if (chronoLeft > 0) chronoLeft = std::max(0.0, chronoLeft - dt);  // хроносфера: время стоит
+    else timeLeft -= dt;
     hurtFlash = std::max(0.0, hurtFlash - dt * 3);
     if (comboTimer > 0) {
         comboTimer -= dt;
@@ -576,7 +671,7 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
     pos.y += vel.y * (float)dt;
 
     // Объекты
-    float pullR = R * 2.4f * (float)st_.pull;
+    float pullR = R * 2.4f * (float)st_.pull * (magnetLeft > 0 ? 2.5f : 1.0f);
     float vr = viewRadius();
     float pickR = R * 3.0f * (float)st_.magnet;
     satAngle += (float)dt * 2.2f;
@@ -587,13 +682,13 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
         if (o.dead) continue;
         float dx = pos.x - o.p.x, dy = pos.y - o.p.y;
         float dd = std::sqrt(dx * dx + dy * dy) + 0.001f;
-        if (dd > vr * 1.7f && o.tier != 10) { o.dead = true; continue; }
+        if (dd > vr * 1.7f && o.kind != K_CORE) { o.dead = true; continue; }
         bool edible = canEat(o);
         float range = (o.kind == K_CLOCK || o.kind == K_DARK) ? std::max(pullR, pickR) : pullR;
         if (collapseLeft > 0 && edible && dd < vr) range = vr;
         o.pulled = edible && dd < range;
         if (o.pulled) {
-            float strength = (dd < pullR ? 1 - dd / range : 0.3f) * 9 * (float)st_.pullStr;
+            float strength = (dd < pullR ? 1 - dd / range : 0.3f) * 9 * (float)st_.pullStr * (magnetLeft > 0 ? 2.0f : 1.0f);
             if (collapseLeft > 0) strength = std::max(strength, 4.0f * (float)st_.collapsePow);
             float acc = strength * speed;
             o.v.x += dx / dd * acc * (float)dt;
@@ -633,6 +728,47 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
             }
         }
 
+        if (o.kind == K_CORE) {
+            float contact = R + o.size * 0.85f;
+            bool canBite = R * st_.eat >= o.size * kBiteRatio;
+            if (dd < contact) {
+                if (canBite) {
+                    // кусаем Ядро: чем мы крупнее, тем быстрее
+                    float rate = kBiteRate * (float)st_.bite * (R * (float)st_.eat / o.size);
+                    o.hp -= rate * (float)dt;
+                    timeLeft += dt * 0.5;  // пока кусаем, испарение вдвое медленнее
+                    int t = 0;
+                    for (int k = 0; k < kTierCount; k++)
+                        if (kTiers[k].size < R * st_.eat) t = k;
+                    double v = tierValue(t) * 4 * dt * (doubleLeft > 0 ? 2 : 1);
+                    mass += v; total += v; runMass += v;
+                    biteFx_ -= dt;
+                    if (biteFx_ <= 0) {
+                        biteFx_ = 0.08;
+                        float a = std::atan2(dy, dx);
+                        Vec at = {o.p.x + std::cos(a) * o.size, o.p.y + std::sin(a) * o.size};
+                        events.push_back({EvType::CoreBite, o.hp, 0, at});
+                    }
+                    if (o.hp <= 0) {
+                        o.dead = true;
+                        if (universe + 1 < kUniverseCount) {
+                            phase = Phase::UniverseClear;
+                            events.push_back({EvType::CoreEaten, 0, universe, o.p});
+                        } else {
+                            phase = Phase::Won;
+                            events.push_back({EvType::Win, 0, universe, o.p});
+                        }
+                        break;
+                    }
+                }
+                float push = (contact * (canBite ? 0.97f : 1.0f) - dd) / dd;
+                if (push > 0) {
+                    pos.x += dx * push;
+                    pos.y += dy * push;
+                }
+            }
+            continue;
+        }
         if (edible && dd < R * 0.95f) {
             eat(o, false);
             continue;
@@ -674,6 +810,7 @@ void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
 
     clockCd_ = std::max(0.0, clockCd_ - dt);
     darkCd_ = std::max(0.0, darkCd_ - dt);
+    powerCd_ = std::max(0.0, powerCd_ - dt);
     goldCd_ = std::max(0.0, goldCd_ - dt);
     spawnAcc_ += dt;
     if (spawnAcc_ > 0.15) {

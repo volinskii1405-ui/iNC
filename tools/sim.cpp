@@ -16,19 +16,22 @@ int main(int argc, char **argv)
     if (argc > 3) kRingCost = atof(argv[3]);
     if (argc > 4) kLevelGrowthAdd = atof(argv[4]);
     if (argc > 5) kGrowthK = (float)atof(argv[5]);
+    if (getenv("CAPCOST")) kCapCost = atof(getenv("CAPCOST"));
     const double treeTime = 12;  // сколько живой игрок проводит в дереве между заходами
     unsigned seed = getenv("SEED") ? atoi(getenv("SEED")) : 11;
     Game g(seed);
     srand(seed);
     double human = 0;
     const double dt = 1.0 / 30;
-    while (g.phase != Phase::Won && g.runs < 200) {
+    while (g.phase != Phase::Won && g.runs < 300) {
         // Покупки: самое дешёвое, что можно купить, пока есть деньги
         for (;;) {
             int best = -1;
             double bc = 1e300;
             for (size_t i = 1; i < kNodes.size(); i++)
                 if (g.canBuy((int)i) && g.nodeCost((int)i) < bc) { bc = g.nodeCost((int)i); best = (int)i; }
+            for (size_t i = 1; i < kNodes.size(); i++)
+                if (kNodes[i].stat == ST_FINAL && g.canBuy((int)i)) best = (int)i;  // игрок берёт Ядро сразу
             if (best < 0) break;
             g.buyNode(best);
         }
@@ -51,8 +54,8 @@ int main(int argc, char **argv)
                         avoid.x -= dx / d * (g.R * 6 - d);
                         avoid.y -= dy / d * (g.R * 6 - d);
                     }
+                    if (o.kind == K_CORE && g.R * g.stats().eat >= o.size * kBiteRatio) { target = o.p; bestScore = 1e300; break; }
                     if (!edible) continue;
-                    if (o.kind == K_TIER && o.tier == 10) { target = o.p; bestScore = 1e300; break; }
                     double v = o.kind == K_TIER ? kTiers[o.tier].value : o.kind == K_CLOCK ? 500 : 50;
                     if (o.kind == K_CLOCK) v = kTiers[std::min(9, std::max(0, (int)std::log2(g.R / 4) + 1))].value * 8;
                     double score = v / (d + g.R * 2) * (0.5 + skill * (rand() / (double)RAND_MAX));
@@ -62,11 +65,16 @@ int main(int argc, char **argv)
                 target.y += avoid.y * skill;
             }
             g.update(dt, target, skill > 0.5, true);
+            if (getenv("DBG")) for (auto &e : g.events) if (e.type == EvType::CoreEaten || e.type == EvType::Win) printf("  core eaten t=%.1f R=%.0f univ=%d\n", g.runTime, g.R, g.universe);
             g.events.clear();
         }
         if (g.phase == Phase::RunEnd) g.finishRunScreen();
+        if (g.phase == Phase::UniverseClear) {
+            if (verbose) printf("--- вселенная %d пройдена за %.0f с\n", g.universe + 1, human + g.playTime);
+            g.nextUniverse();
+        }
         if (verbose)
-            printf("заход %2d  t=%5.0f  R0=%3.0f  Rmax=%4.0f  время=%4.0f  +%-8s  банк=%-8s  ТМ=%2.0f  узлов=%d\n", g.runs, human + g.playTime,
+            printf("[%d] заход %2d  t=%5.0f  R0=%3.0f  Rmax=%4.0f  время=%4.0f  +%-8s  банк=%-8s  ТМ=%2.0f  узлов=%d\n", g.universe + 1, g.runs, human + g.playTime,
                    g.stats().size, g.bestR, g.stats().time, fmtNum(g.runMass).c_str(), fmtNum(g.mass).c_str(), g.dark, [&] {
                        int n = 0;
                        for (size_t i = 1; i < kNodes.size(); i++) n += g.level((int)i);

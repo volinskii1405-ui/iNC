@@ -16,7 +16,7 @@ struct Vec {
 };
 
 // ---------- объекты космоса ----------
-constexpr int kTierCount = 11;  // 0..9 — обычные объекты, 10 — Ядро Вселенной
+constexpr int kTierCount = 13;  // обычные объекты от пыли до пузырей Хаббла
 
 struct TierDef {
     const char *name;
@@ -26,7 +26,20 @@ struct TierDef {
 
 extern const std::array<TierDef, kTierCount> kTiers;
 
-enum Kind { K_TIER, K_ANTI, K_PULSAR, K_RIVAL, K_CLOCK, K_DARK, K_GOLD };
+enum Kind { K_TIER, K_ANTI, K_PULSAR, K_RIVAL, K_CLOCK, K_DARK, K_GOLD, K_CORE, K_MAGNET, K_NOVA, K_CHRONO, K_DOUBLE };
+
+// ---------- вселенные ----------
+constexpr int kUniverseCount = 4;
+
+struct UniverseDef {
+    const char *name;
+    const char *desc;
+    double valueMult;  // во сколько раз ценнее объекты
+    float coreSize;    // радиус Ядра этой вселенной
+    float hazard;      // множитель опасностей
+};
+
+extern const std::array<UniverseDef, kUniverseCount> kUniverses;
 
 struct Obj {
     Kind kind = K_TIER;
@@ -36,6 +49,7 @@ struct Obj {
     float rot = 0, spin = 0;
     float beam = 0;          // угол луча пульсара
     float hurtCd = 0;
+    float hp = 1;            // Ядро: сколько осталось откусить
     bool pulled = false;
     bool dead = false;
     uint32_t id = 0;
@@ -47,6 +61,7 @@ enum Stat {
     ST_DENSITY, ST_RICH, ST_COMBO, ST_COMBOWIN, ST_CRIT, ST_CRITMULT, ST_CLOCK, ST_CLOCKVAL, ST_ARMOR,
     ST_GOLD, ST_CHAIN, ST_SAT, ST_SATSIZE, ST_DASH, ST_DASHCD, ST_COLLAPSE, ST_COLLAPSEPOW, ST_DARK,
     ST_INTEREST, ST_MAGNET, ST_TIMEFEED, ST_ANTIEAT, ST_LOOP, ST_RIVAL, ST_SWARM, ST_PHANTOM, ST_FINAL,
+    ST_BITE, ST_POWER, ST_POWERDUR,
 };
 
 enum class Branch { Root, Gravity, Growth, Time, Wealth, Cosmos, Dark };
@@ -70,7 +85,8 @@ extern const std::vector<NodeDef> kNodes;
 
 struct Stats {
     double size = 13, speed = 1, pull = 1, pullStr = 1, eat = 0.85, growth = 1, time = 15;
-    double value = 1, tierVal[kTierCount] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+    double value = 1, tierVal[kTierCount] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+    double bite = 1, power = 0.004, powerDur = 1;
     double density = 1, rich = 0, comboMax = 1.5, comboWin = 0.6, crit = 0, critMult = 5;
     double clock = 0, clockVal = 2, armor = 0, gold = 0.002, chain = 0;
     int sats = 0;
@@ -88,7 +104,8 @@ struct Stats {
 
 // ---------- события для интерфейса ----------
 enum class EvType {
-    Eat, Hurt, Clock, Dark, Chain, RivalEaten, RunStart, RunEnd, Dash, Collapse, LoopSave, Win, NodeBuy, SatEat, Gold
+    Eat, Hurt, Clock, Dark, Chain, RivalEaten, RunStart, RunEnd, Dash, Collapse, LoopSave, Win, NodeBuy, SatEat, Gold,
+    CoreBite, CoreEaten, PowerUp, Nova
 };
 
 struct Event {
@@ -100,7 +117,7 @@ struct Event {
     float size = 0;
 };
 
-enum class Phase { Tree, Run, RunEnd, Won };
+enum class Phase { Tree, Run, RunEnd, UniverseClear, Won };
 
 class Game {
 public:
@@ -110,6 +127,7 @@ public:
 
     // Дерево
     int level(int node) const { return levels_[node]; }
+    int levelCap(int node) const;  // предел уровня растёт с каждой вселенной
     bool nodeVisible(int node) const;
     bool nodeAvailable(int node) const;  // родитель открыт и есть куда расти
     double nodeCost(int node) const;
@@ -123,6 +141,7 @@ public:
     // target — куда ведём дыру (мировые координаты)
     void update(double dt, Vec target, bool dash, bool collapse);
     void finishRunScreen() { if (phase == Phase::RunEnd) phase = Phase::Tree; }
+    void nextUniverse();  // после Ядра: следующая вселенная
 
     // Камера: радиус дыры на экране и масштаб
     float zoomFor(float R) const;
@@ -136,6 +155,9 @@ public:
     double playTime = 0;  // только время заходов
     int runs = 0;
     double bestR = 0;
+    int universe = 0;
+    // артефакты
+    double magnetLeft = 0, chronoLeft = 0, doubleLeft = 0;
 
     // Текущий заход
     Vec pos, vel;
@@ -168,10 +190,11 @@ private:
     std::mt19937 rng_;
     uint32_t nextId_ = 1;
     double spawnAcc_ = 0;
-    double clockCd_ = 0, darkCd_ = 0, goldCd_ = 0;
+    double clockCd_ = 0, darkCd_ = 0, goldCd_ = 0, powerCd_ = 0, biteFx_ = 0;
     float runArea_ = 0;
     double timeGained_ = 0;  // прибавки за заход ограничены стартовым временем
     void addTime(double s);
+    void nova();
     bool kindOnField(Kind k) const;
 };
 
@@ -180,5 +203,7 @@ std::string fmtNum(double v);
 // Ручки баланса (подобраны симулятором tools/sim.cpp)
 extern double kRingCost, kLevelGrowthAdd;
 extern float kGrowthK;
+extern float kBiteRatio, kBiteRate, kMaxGrowth;
+extern double kCapCost;
 
 }  // namespace bh

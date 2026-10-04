@@ -187,7 +187,7 @@ struct Star {
     float b, tw, depth, size;
 };
 
-enum class Screen { Intro, Run, RunEnd, Tree, Collapse, End };
+enum class Screen { Intro, Run, RunEnd, Tree, Collapse, UniverseIntro, End };
 
 struct App {
     Game game;
@@ -203,12 +203,13 @@ struct App {
     Vector2 cam{0, 0}, starScroll{0, 0};
     float zoom = 2.5f;
     Vector2 camShake{};
-    float collapseT = 0, endT = 0, runEndT = 0;
+    float collapseT = 0, endT = 0, runEndT = 0, uniT = 0;
+    bool collapseToNext = false;  // коллапс ведёт в следующую вселенную, а не в финал
     double lastInterest = 0, runStartBest = 0;
     float bannerT = 0;
     std::string bannerTitle, bannerText;
     Color bannerColor = kGold;
-    float eatSoundCd = 0;
+    float eatSoundCd = 0, floatCd = 0, chainTextCd = 0;
 
     // созвездие
     Vector2 treeCam{0, 0};
@@ -260,7 +261,20 @@ void banner(const std::string &title, const std::string &body, Color c)
 
 const Color kTierColors[kTierCount] = {{190, 170, 150, 255}, {160, 140, 120, 255}, {170, 230, 255, 255}, {220, 220, 230, 255},
                                        {90, 170, 240, 255},  {230, 170, 110, 255}, {255, 220, 120, 255}, {255, 240, 200, 255},
-                                       {200, 140, 255, 255}, {120, 200, 255, 255}, {255, 255, 255, 255}};
+                                       {200, 140, 255, 255}, {120, 200, 255, 255}, {200, 230, 255, 255}, {255, 190, 120, 255},
+                                       {160, 220, 255, 255}};
+
+// Палитры вселенных: фон, три туманности и оттенок звёзд.
+struct UniTheme {
+    Color bg, n1, n2, n3, starA, starB;
+};
+const UniTheme kThemes[kUniverseCount] = {
+    {{6, 5, 16, 255}, {70, 30, 120, 70}, {20, 60, 120, 70}, {120, 40, 80, 45}, {170, 190, 255, 255}, {255, 240, 220, 255}},
+    {{4, 10, 20, 255}, {30, 110, 150, 80}, {90, 160, 220, 60}, {150, 220, 255, 40}, {170, 240, 255, 255}, {220, 255, 255, 255}},
+    {{18, 5, 4, 255}, {150, 40, 10, 80}, {200, 90, 20, 60}, {120, 20, 40, 60}, {255, 190, 140, 255}, {255, 240, 180, 255}},
+    {{10, 3, 16, 255}, {140, 30, 160, 80}, {40, 200, 140, 50}, {200, 60, 120, 55}, {200, 255, 220, 255}, {255, 180, 255, 255}},
+};
+const UniTheme &theme() { return kThemes[app.game.universe]; }
 
 // ---------- рисование объектов (в начале координат, size — радиус в пикселях) ----------
 
@@ -346,16 +360,44 @@ void drawTierIcon(int tier, float size, float t, float alpha)
             DrawCircleV(p2, size * 0.07f, A({220, 170, 255, 255}));
         }
         break;
-    case 10:  // Ядро Вселенной
-        DrawCircleGradient(0, 0, size * 1.6f, A({255, 255, 255, 120}), A({200, 120, 255, 0}));
-        for (int i = 0; i < 6; i++) {
-            float a0 = t * 40 * (i % 2 ? 1 : -1) + i * 30;
-            DrawRing({0, 0}, size * (0.3f + i * 0.12f), size * (0.34f + i * 0.12f), a0, a0 + 240, 48,
-                     A(ColorFromHSV(std::fmod(t * 40 + i * 50, 360.0f), 0.5f, 1)));
+    case 10: {  // квазар: яркий диск и два джета
+        for (int s = -1; s <= 1; s += 2) {
+            DrawTriangle({-size * 0.12f, 0}, {size * 0.12f, 0}, {0, s * size * 2.6f}, A({170, 220, 255, 120}));
+            DrawTriangle({size * 0.12f, 0}, {-size * 0.12f, 0}, {0, s * size * 2.6f}, A({170, 220, 255, 120}));
         }
-        DrawCircleV({0, 0}, size * 0.25f, A(WHITE));
+        DrawCircleGradient(0, 0, size * 1.2f, A({200, 230, 255, 160}), A({60, 100, 255, 0}));
+        DrawEllipse(0, 0, size * 0.9f, size * 0.22f, A({255, 230, 180, 255}));
+        DrawCircleV({0, 0}, size * 0.3f, A(WHITE));
         break;
     }
+    case 11:  // Великая стена — нить из галактик
+        for (int i = 0; i < 24; i++) {
+            float k = i / 23.0f * 2 - 1;
+            Vector2 p = {k * size, std::sin(k * 3 + 1) * size * 0.25f};
+            DrawCircleGradient((int)p.x, (int)p.y, size * 0.16f, A({255, 200, 140, 120}), A({255, 120, 60, 0}));
+            DrawCircleV(p, size * 0.035f, A({255, 240, 210, 255}));
+        }
+        break;
+    case 12:  // пузырь Хаббла
+        DrawCircleGradient(0, 0, size, A({120, 200, 255, 25}), A({120, 200, 255, 70}));
+        DrawRing({0, 0}, size * 0.95f, size, 0, 360, 64, A({170, 230, 255, 200}));
+        for (int i = 0; i < 16; i++) {
+            float a = i * 0.39f + t * 0.1f;
+            DrawCircleV({std::cos(a) * size * 0.97f, std::sin(a) * size * 0.97f}, size * 0.04f, A({255, 240, 255, 255}));
+        }
+        break;
+    }
+}
+
+void drawCoreIcon(float size, float t)
+{
+    DrawCircleGradient(0, 0, size * 1.6f, {255, 255, 255, 120}, {200, 120, 255, 0});
+    for (int i = 0; i < 6; i++) {
+        float a0 = t * 40 * (i % 2 ? 1 : -1) + i * 30;
+        DrawRing({0, 0}, size * (0.3f + i * 0.12f), size * (0.34f + i * 0.12f), a0, a0 + 240, 48,
+                 ColorFromHSV(std::fmod(t * 40 + i * 50, 360.0f), 0.5f, 1));
+    }
+    DrawCircleV({0, 0}, size * 0.25f, WHITE);
 }
 
 void pushTransform(Vector2 sp, float rotDeg, float stretch)
@@ -390,7 +432,7 @@ void drawObj(const Obj &o)
         pushTransform(sp, rot, stretch);
         drawTierIcon(o.tier, ss, app.t, alpha);
         rlPopMatrix();
-        if (!edible && o.tier < 10) {
+        if (!edible) {
             // не по зубам — красная пунктирная обводка
             for (int k = 0; k < 12; k++) {
                 float a0 = k * 30 + app.t * 15;
@@ -467,6 +509,47 @@ void drawObj(const Obj &o)
         DrawPoly(sp, 4, ss * 0.5f, app.t * 60, Fade(WHITE, 0.7f));
         break;
     }
+    case K_CORE: {
+        rlPushMatrix();
+        rlTranslatef(sp.x, sp.y, 0);
+        drawCoreIcon(ss, app.t);
+        rlPopMatrix();
+        float hp = Clamp(o.hp, 0, 1);
+        DrawRing(sp, ss * 1.08f, ss * 1.14f, -90, -90 + 360 * hp, 96, kGood);
+        bool bite = g.R * (float)g.stats().eat >= o.size * kBiteRatio;
+        textShadow(bite ? "КУСАЙ ЯДРО!" : "ЯДРО ВСЕЛЕННОЙ", sp.x, sp.y - ss * 1.2f - 22, 18, bite ? kGood : kGold);
+        break;
+    }
+    case K_MAGNET: case K_NOVA: case K_CHRONO: case K_DOUBLE: {
+        static const Color pc[] = {{255, 90, 90, 255}, {255, 160, 60, 255}, {80, 220, 255, 255}, {255, 215, 90, 255}};
+        Color c = pc[o.kind - K_MAGNET];
+        float pulse = 1 + 0.15f * std::sin(app.t * 6);
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 2.4f * pulse, Fade(c, 0.55f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawPoly(sp, 6, ss * 1.05f, o.rot, {20, 16, 40, 255});
+        DrawPolyLinesEx(sp, 6, ss * 1.05f, o.rot, 2.5f, c);
+        if (o.kind == K_MAGNET) {
+            DrawRing(sp, ss * 0.35f, ss * 0.55f, 180, 360, 16, c);
+            DrawRectangleV({sp.x - ss * 0.55f, sp.y}, {ss * 0.2f, ss * 0.35f}, c);
+            DrawRectangleV({sp.x + ss * 0.35f, sp.y}, {ss * 0.2f, ss * 0.35f}, c);
+        } else if (o.kind == K_NOVA) {
+            for (int k = 0; k < 8; k++) {
+                float a = k * PI / 4 + app.t;
+                DrawLineEx(sp, {sp.x + std::cos(a) * ss * 0.7f, sp.y + std::sin(a) * ss * 0.7f}, 2.5f, c);
+            }
+            DrawCircleV(sp, ss * 0.22f, WHITE);
+        } else if (o.kind == K_CHRONO) {
+            DrawRing(sp, ss * 0.45f, ss * 0.58f, 0, 360, 24, c);
+            DrawLineEx(sp, {sp.x, sp.y - ss * 0.4f}, 2.5f, c);
+            DrawLineEx(sp, {sp.x + ss * 0.3f, sp.y}, 2.5f, c);
+        } else {
+            text("×2", sp.x, sp.y - ss * 0.45f, ss * 0.9f, c, CENTER, true);
+        }
+        static const char *names[] = {"МАГНИТ", "СВЕРХНОВАЯ", "ХРОНОСФЕРА", "УДВОИТЕЛЬ"};
+        textShadow(names[o.kind - K_MAGNET], sp.x, sp.y - ss * 1.4f - 16, 13, c);
+        break;
+    }
     case K_GOLD: {
         float a = std::atan2(o.v.y, o.v.x);
         Vector2 back = {sp.x - std::cos(a) * ss * 5, sp.y - std::sin(a) * ss * 5};
@@ -494,17 +577,18 @@ float wrapf(float v, float m) { return v - std::floor(v / m) * m; }
 
 void drawBackground(Vector2 holeScreen, float holeRs, bool lens)
 {
-    ClearBackground(kBg);
+    const UniTheme &th = theme();
+    ClearBackground(th.bg);
     float t = app.t;
     Vector2 sc = app.starScroll;
-    DrawCircleGradient((int)wrapf(260 - sc.x * 0.02f, VW + 600) - 300, (int)wrapf(220 - sc.y * 0.02f, VH + 600) - 300, 420, {70, 30, 120, 70}, {0, 0, 0, 0});
-    DrawCircleGradient((int)wrapf(1050 - sc.x * 0.03f, VW + 600) - 300, (int)wrapf(520 - sc.y * 0.03f, VH + 600) - 300, 460, {20, 60, 120, 70}, {0, 0, 0, 0});
-    DrawCircleGradient((int)wrapf(700 - sc.x * 0.015f, VW + 600) - 300, (int)wrapf(120 - sc.y * 0.015f, VH + 600) - 300, 300, {120, 40, 80, 45}, {0, 0, 0, 0});
+    DrawCircleGradient((int)wrapf(260 - sc.x * 0.02f, VW + 600) - 300, (int)wrapf(220 - sc.y * 0.02f, VH + 600) - 300, 420, th.n1, {0, 0, 0, 0});
+    DrawCircleGradient((int)wrapf(1050 - sc.x * 0.03f, VW + 600) - 300, (int)wrapf(520 - sc.y * 0.03f, VH + 600) - 300, 460, th.n2, {0, 0, 0, 0});
+    DrawCircleGradient((int)wrapf(700 - sc.x * 0.015f, VW + 600) - 300, (int)wrapf(120 - sc.y * 0.015f, VH + 600) - 300, 300, th.n3, {0, 0, 0, 0});
     float E = holeRs * 1.55f;
     for (auto &s : app.stars) {
         Vector2 p = {wrapf(s.p.x - sc.x * s.depth, VW), wrapf(s.p.y - sc.y * s.depth, VH)};
         float tw = 0.65f + 0.35f * std::sin(t * 2 + s.tw);
-        Color c = Fade(lerpColor({170, 190, 255, 255}, {255, 240, 220, 255}, s.tw / 10), s.b * tw);
+        Color c = Fade(lerpColor(th.starA, th.starB, s.tw / 10), s.b * tw);
         if (lens) {
             Vector2 d = Vector2Subtract(p, holeScreen);
             float r = Vector2Length(d) + 0.001f;
@@ -590,6 +674,7 @@ void drawRunWorld()
         float a0 = k * 7.5f + app.t * 6;
         DrawRing(hs, pullRs - 1, pullRs, a0, a0 + 3.5f, 2, Fade(kDim, 0.18f));
     }
+    if (g.magnetLeft > 0) DrawRing(hs, pullRs - 3, pullRs + 1, 0, 360, 96, Fade({255, 90, 90, 255}, 0.5f + 0.3f * std::sin(app.t * 8)));
     if (g.collapseLeft > 0) DrawCircleGradient((int)hs.x, (int)hs.y, 900, Fade({150, 125, 255, 255}, 0.18f), {0, 0, 0, 0});
 
     for (auto &o : g.objs) drawObj(o);
@@ -613,10 +698,10 @@ void drawCoreArrow()
 {
     Game &g = app.game;
     for (auto &o : g.objs) {
-        if (o.kind != K_TIER || o.tier != 10) continue;
+        if (o.kind != K_CORE) continue;
         Vector2 sp = toScreen(o.p);
         bool on = sp.x > 0 && sp.x < VW && sp.y > 0 && sp.y < VH;
-        bool edible = g.canEat(o);
+        bool edible = g.R * g.stats().eat >= o.size * kBiteRatio;
         Color c = edible ? kGood : kGold;
         if (!on) {
             Vector2 d = Vector2Normalize(Vector2Subtract(sp, kScreenC));
@@ -630,7 +715,7 @@ void drawCoreArrow()
         }
         if (!edible) {
             char buf[96];
-            std::snprintf(buf, sizeof buf, "Ядро: нужен размер %.0f (сейчас %.0f)", o.size / g.stats().eat, g.R);
+            std::snprintf(buf, sizeof buf, "Чтобы кусать Ядро, нужен размер %.0f (сейчас %.0f)", o.size * kBiteRatio / g.stats().eat, g.R);
             textShadow(buf, 640, 682, 15, kGold);
         }
     }
@@ -663,8 +748,20 @@ void drawRunHud()
     // тёмная материя
     DrawPoly({VW - 34, 30}, 4, 10, app.t * 40, kDarkC);
     text(fmtNum(g.dark), VW - 52, 19, 22, kDarkC, RIGHT, true);
-    std::snprintf(buf, sizeof buf, "заход %d", g.runs);
+    std::snprintf(buf, sizeof buf, "%s  •  заход %d", kUniverses[g.universe].name, g.runs);
     text(buf, VW - 24, 48, 14, kDim, RIGHT);
+    // активные артефакты
+    float ay = 72;
+    auto artifact = [&](const char *name, double left, Color c) {
+        if (left <= 0) return;
+        char b2[64];
+        std::snprintf(b2, sizeof b2, "%s  %.1f с", name, left);
+        text(b2, VW - 24, ay, 16, c, RIGHT, true);
+        ay += 22;
+    };
+    artifact("МАГНИТ", g.magnetLeft, {255, 90, 90, 255});
+    artifact("ХРОНОСФЕРА", g.chronoLeft, kTimeC);
+    artifact("УДВОИТЕЛЬ ×2", g.doubleLeft, kGold);
 
     // комбо
     if (g.combo >= 3) {
@@ -698,6 +795,10 @@ void drawRunHud()
     else if (g.runs == 3 && g.runTime < 6)
         textShadow("Осторожно: антиматерия и крупные дыры-соперники отнимают время", 640, 600, 17, kBad);
 
+    if (g.chronoLeft > 0) {
+        DrawRectangleGradientV(0, 0, (int)VW, 90, Fade(kTimeC, 0.18f), {0, 0, 0, 0});
+        textShadow("ВРЕМЯ ОСТАНОВЛЕНО", 640, 64, 15, kTimeC);
+    }
     if (app.hurtVignette > 0) {
         DrawRectangleGradientV(0, 0, (int)VW, 120, Fade(kBad, app.hurtVignette * 0.4f), {0, 0, 0, 0});
         DrawRectangleGradientV(0, (int)VH - 120, (int)VW, 120, {0, 0, 0, 0}, Fade(kBad, app.hurtVignette * 0.4f));
@@ -771,7 +872,7 @@ void drawStatIcon(Stat s, Vector2 p, float r, Color c)
     case ST_PULL: case ST_PULLSTR: case ST_COLLAPSE: case ST_COLLAPSEPOW:
         for (int k = 0; k < 3; k++) DrawRing(p, r * (0.18f + k * 0.18f), r * (0.24f + k * 0.18f), t * 60 * (k + 1), t * 60 * (k + 1) + 260, 24, c);
         break;
-    case ST_EAT: case ST_ANTIEAT:
+    case ST_EAT: case ST_ANTIEAT: case ST_BITE:
         DrawCircleSector(p, r * 0.55f, 30, 330, 24, c);
         DrawCircleV({p.x + r * 0.12f, p.y - r * 0.22f}, r * 0.08f, BLACK);
         break;
@@ -779,6 +880,10 @@ void drawStatIcon(Stat s, Vector2 p, float r, Color c)
         DrawRing(p, r * 0.45f, r * 0.55f, 0, 360, 24, c);
         DrawLineEx(p, {p.x, p.y - r * 0.38f}, 2, c);
         DrawLineEx(p, {p.x + r * 0.28f, p.y}, 2, c);
+        break;
+    case ST_POWER: case ST_POWERDUR:
+        DrawPolyLinesEx(p, 6, r * 0.5f, t * 40, 2.5f, c);
+        DrawCircleV(p, r * 0.15f, c);
         break;
     case ST_ARMOR:
         DrawPoly(p, 6, r * 0.5f, 30, c);
@@ -864,7 +969,8 @@ void drawTree(Vector2 m, int &hovered)
         if (p.x < -r || p.x > VW + r || p.y < -r || p.y > VH + r) continue;
         Color c = branchColor(n.branch);
         int lv = g.level((int)i);
-        bool maxed = lv >= n.maxLevel, can = g.canBuy((int)i);
+        int cap = g.levelCap((int)i);
+        bool maxed = lv >= cap, can = g.canBuy((int)i);
         bool hov = CheckCollisionPointCircle(m, p, r + 3);
         if (hov) hovered = (int)i;
         if (i == 0) {
@@ -879,7 +985,7 @@ void drawTree(Vector2 m, int &hovered)
         DrawCircleV(p, r, lv > 0 ? lerpColor(c, {16, 12, 34, 255}, maxed ? 0.35f : 0.65f) : Color{20, 16, 42, 255});
         // дуга уровня
         DrawRing(p, r - 3 * z, r, 0, 360, 36, Fade(c, 0.25f));
-        if (lv > 0) DrawRing(p, r - 3 * z, r, -90, -90 + 360.0f * lv / n.maxLevel, 36, c);
+        if (lv > 0) DrawRing(p, r - 3 * z, r, -90, -90 + 360.0f * lv / cap, 36, c);
         if (can) DrawRing(p, r + 2 * z, r + 4.5f * z, 0, 360, 36, Fade(kGood, 0.55f + 0.45f * std::sin(app.t * 5)));
         drawStatIcon(n.stat, p, r, lv > 0 ? WHITE : Fade(c, 0.85f));
         if (app.nodeFlash[i] > 0) {
@@ -887,8 +993,8 @@ void drawTree(Vector2 m, int &hovered)
             DrawCircleV(p, r * (1 + 1.5f * (1 - app.nodeFlash[i])), Fade(WHITE, app.nodeFlash[i] * 0.6f));
             EndBlendMode();
         }
-        if (n.maxLevel > 1 || lv == 0) {
-            std::string lt = maxed ? "МАКС" : std::to_string(lv) + "/" + std::to_string(n.maxLevel);
+        if (cap > 1 || lv == 0) {
+            std::string lt = maxed ? "МАКС" : std::to_string(lv) + "/" + std::to_string(cap);
             text(lt, p.x, p.y + r + 2, 11 * std::max(0.85f, z), maxed ? c : can ? kGood : kDim, CENTER, true);
         }
     }
@@ -902,12 +1008,12 @@ void drawTree(Vector2 m, int &hovered)
     text(fmtNum(g.dark) + " тёмной материи", 348, 21, 18, kDarkC, LEFT, true);
     textGlow("СОЗВЕЗДИЕ ПРОКАЧКИ", 640 + 120, 8, 24, kText, CENTER, {150, 125, 255, 255});
     char buf[160];
-    std::snprintf(buf, sizeof buf, "заходов: %d   •   рекорд размера: %.0f   •   время: %s", g.runs, g.bestR, fmtTime(app.realTime).c_str());
+    std::snprintf(buf, sizeof buf, "%s (%d/%d)   •   заходов: %d   •   рекорд: %.0f   •   %s", kUniverses[g.universe].name, g.universe + 1, kUniverseCount, g.runs, g.bestR, fmtTime(app.realTime).c_str());
     text(buf, 640 + 120, 38, 14, kDim, CENTER);
 
     // статы слева
     const Stats &st = g.stats();
-    Rectangle pr = {14, 78, 236, 330};
+    Rectangle pr = {14, 78, 236, 352};
     DrawRectangleRounded(pr, 0.06f, 8, kPanel);
     DrawRectangleRoundedLinesEx(pr, 0.06f, 8, 1.2f, kPanelEdge);
     text("ТВОЯ ДЫРА", pr.x + 14, pr.y + 10, 15, kDim, LEFT, true);
@@ -929,6 +1035,7 @@ void drawTree(Vector2 m, int &hovered)
     std::snprintf(buf, sizeof buf, "%d", st.sats); row("Спутники", buf);
     row("Рывок / коллапс", std::string(st.dash ? "да" : "нет") + " / " + (st.collapse ? "да" : "нет"));
     std::snprintf(buf, sizeof buf, "%.0f%%", st.armor * 100); row("Защита", buf);
+    std::snprintf(buf, sizeof buf, "×%.2f", st.bite); row("Укус ядра", buf);
 
     text("Колесо — масштаб, перетаскивай — двигать", 20, VH - 30, 13, Fade(kDim, 0.8f));
 
@@ -945,8 +1052,8 @@ void drawTree(Vector2 m, int &hovered)
         int lv = g.level(hovered);
         std::string title = n.name;
         std::string body = std::string(n.desc) + (n.maxLevel > 1 ? "  (за уровень)" : "");
-        std::snprintf(buf, sizeof buf, "Уровень %d/%d", lv, n.maxLevel);
-        std::string foot = lv >= n.maxLevel ? std::string(buf) + "  •  максимум" : std::string(buf) + "  •  цена " + costStr(hovered) + (g.canBuy(hovered) ? "  — кликни" : "  — не хватает");
+        std::snprintf(buf, sizeof buf, "Уровень %d/%d", lv, g.levelCap(hovered));
+        std::string foot = lv >= g.levelCap(hovered) ? std::string(buf) + "  •  максимум" : std::string(buf) + "  •  цена " + costStr(hovered) + (g.canBuy(hovered) ? "  — кликни" : "  — не хватает");
         float w = std::max({measure(title, 18, true).x, measure(body, 15).x, measure(foot, 15, true).x}) + 28;
         float x = std::min(m.x + 18, VW - w - 8), ty = std::min(m.y + 18, VH - 96);
         Color c = branchColor(n.branch);
@@ -977,7 +1084,8 @@ void handleEvents()
                 app.audio.play(e.crit ? SFX_CRIT : SFX_CLICK, pitch, sat ? 0.3f : 0.4f + rel * 0.6f);
                 app.eatSoundCd = 0.05f;
             }
-            if (e.crit || rel > 0.35f) {
+            if ((e.crit || rel > 0.35f) && app.floatCd <= 0) {
+                app.floatCd = 0.12f;
                 Vector2 sp = toScreen(e.p);
                 floatText({sp.x, sp.y - 10}, (e.crit ? "КРИТ +" : "+") + fmtNum(e.value), e.crit ? kAccent : kText, e.crit ? 24 : 16 + rel * 10);
             }
@@ -1019,7 +1127,10 @@ void handleEvents()
             app.audio.play(SFX_WAVE, 1.3f, 0.7f);
             shockW(e.p, 600, kAccent, 0.7f, 14);
             burstW(e.p, 40, {255, 200, 120, 255}, 500, 4, 0.9f);
-            floatText(toScreen(e.p), "ЦЕПНАЯ РЕАКЦИЯ!", kAccent, 22, 1.4f);
+            if (app.chainTextCd <= 0) {
+                floatText(toScreen(e.p), "ЦЕПНАЯ РЕАКЦИЯ!", kAccent, 22, 1.4f);
+                app.chainTextCd = 1.0f;
+            }
             addShake(9);
             break;
         case EvType::RivalEaten:
@@ -1054,10 +1165,45 @@ void handleEvents()
             app.runEndT = 0;
             burstW(g.pos, 80, kTimeC, 400, 3, 1.2f);
             break;
-        case EvType::Win:
+        case EvType::Win: case EvType::CoreEaten:
             app.audio.play(SFX_COLLAPSE);
             app.screen = Screen::Collapse;
             app.collapseT = 0;
+            app.collapseToNext = e.type == EvType::CoreEaten;
+            break;
+        case EvType::CoreBite: {
+            Vec hp = g.pos;
+            for (int k = 0; k < 3; k++) {
+                Vec dir = {hp.x - e.p.x, hp.y - e.p.y};
+                float len = std::sqrt(dir.x * dir.x + dir.y * dir.y) + 0.01f;
+                float sp = frand(200, 400) / app.zoom;
+                app.parts.push_back({{e.p.x, e.p.y}, {dir.x / len * sp + frand(-60, 60) / app.zoom, dir.y / len * sp + frand(-60, 60) / app.zoom},
+                                     0.5f, 0.5f, frand(3, 6), ColorFromHSV(frand(0, 360), 0.4f, 1)});
+            }
+            app.pulse = 1;
+            addShake(3);
+            if (app.eatSoundCd <= 0) {
+                app.audio.play(SFX_CRIT, frand(0.5f, 0.7f), 0.5f);
+                app.eatSoundCd = 0.12f;
+            }
+            break;
+        }
+        case EvType::PowerUp: {
+            static const char *titles[] = {"МАГНИТ", "СВЕРХНОВАЯ", "ХРОНОСФЕРА", "УДВОИТЕЛЬ"};
+            static const char *bodies[] = {"Притяжение ×2.5!", "Всё крупное раскалывается!", "Время остановилось!", "Масса ×2!"};
+            static const Color pc[] = {{255, 90, 90, 255}, {255, 160, 60, 255}, {80, 220, 255, 255}, {255, 215, 90, 255}};
+            int k = std::clamp(e.index - (int)K_MAGNET, 0, 3);
+            app.audio.play(SFX_FRENZY, 1.0f + 0.1f * k);
+            banner(titles[k], bodies[k], pc[k]);
+            shockW(g.pos, 900, pc[k], 0.9f, 18);
+            break;
+        }
+        case EvType::Nova:
+            app.audio.play(SFX_WAVE, 0.8f);
+            shockW(g.pos, 1500, {255, 160, 60, 255}, 1.2f, 40);
+            shockW(g.pos, 1000, WHITE, 0.8f, 12);
+            app.flash = 0.35f;
+            addShake(16);
             break;
         case EvType::NodeBuy: {
             app.audio.play(SFX_NODE, 0.9f + 0.05f * kNodes[e.index].ring);
@@ -1098,6 +1244,8 @@ void updateEffects(float dt)
     app.bannerT = std::max(0.0f, app.bannerT - dt);
     app.hurtVignette = std::max(0.0f, app.hurtVignette - dt * 2);
     app.eatSoundCd -= dt;
+    app.floatCd -= dt;
+    app.chainTextCd -= dt;
     app.shake = std::max(0.0f, app.shake - dt * 30);
     app.camShake = {frand(-1, 1) * app.shake, frand(-1, 1) * app.shake};
 }
@@ -1182,9 +1330,38 @@ void drawIntro()
     textGlow("ГОРИЗОНТ СОБЫТИЙ", 640, 70, 64, kText, CENTER, {150, 125, 255, 255});
     text("инкрементальная игра про чёрную дыру", 640, 146, 22, kDim, CENTER);
     text("Веди дыру мышкой и поглощай всё, что меньше тебя: от пыли до сверхскоплений галактик.", 640, 560, 18, kText, CENTER);
-    text("Дыра испаряется — между заходами качай созвездие из 75 улучшений и стань больше.", 640, 584, 18, kText, CENTER);
-    text("Цель — открыть и проглотить Ядро Вселенной. Около 9 минут.", 640, 608, 18, kText, CENTER);
+    text("Дыра испаряется — между заходами качай созвездие из 89 улучшений, лови артефакты.", 640, 584, 18, kText, CENTER);
+    text("Откуси Ядро каждой из 4 вселенных. Около 13 минут.", 640, 608, 18, kText, CENTER);
     if (std::fmod(app.t, 1.0f) < 0.7f) textGlow("Кликни, чтобы начать", 640, 650, 28, kGold, CENTER, kAccent);
+}
+
+void drawUniverseIntro()
+{
+    Game &g = app.game;
+    int next = std::min(g.universe + 1, kUniverseCount - 1);
+    const UniTheme &th = kThemes[next];
+    ClearBackground(th.bg);
+    float k = Clamp(app.uniT / 1.2f, 0, 1);
+    DrawCircleGradient(640, 360, 700 * k, th.n1, {0, 0, 0, 0});
+    DrawCircleGradient(300, 500, 500 * k, th.n2, {0, 0, 0, 0});
+    DrawCircleGradient(1000, 200, 450 * k, th.n3, {0, 0, 0, 0});
+    for (auto &st : app.stars) DrawCircleV(st.p, st.size * 0.6f, Fade(lerpColor(th.starA, th.starB, st.tw / 10), st.b * k));
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "ВСЕЛЕННАЯ %d ПОГЛОЩЕНА", g.universe + 1);
+    textGlow(buf, 640, 120, 30, Fade(kGold, k), CENTER, Fade(kAccent, k));
+    text(std::string("«") + kUniverses[g.universe].name + "» больше нет.", 640, 166, 18, Fade(kDim, k), CENTER);
+    std::snprintf(buf, sizeof buf, "ВСЕЛЕННАЯ %d из %d", next + 1, kUniverseCount);
+    text(buf, 640, 250, 20, Fade(th.starA, k), CENTER, true);
+    textGlow(kUniverses[next].name, 640, 278, 52, Fade(kText, k), CENTER, Fade(th.n1, k));
+    text(kUniverses[next].desc, 640, 350, 20, Fade(kText, k), CENTER);
+    float y = 410;
+    auto line = [&](const std::string &a) { text("•  " + a, 640, y, 18, Fade(kGood, k), CENTER); y += 30; };
+    line("Пределы уровней в созвездии +2 — качайся дальше");
+    std::snprintf(buf, sizeof buf, "Объекты в %.0f раз ценнее", kUniverses[next].valueMult);
+    line(buf);
+    std::snprintf(buf, sizeof buf, "Ядро новой вселенной: размер %.0f", kUniverses[next].coreSize);
+    line(buf);
+    if (app.uniT > 1.0f && std::fmod(app.t, 1.0f) < 0.7f) text("Клик или Пробел — в созвездие", 640, 600, 20, kText, CENTER, true);
 }
 
 void drawEnd()
@@ -1201,7 +1378,7 @@ void drawEnd()
     EndBlendMode();
     drawEffects();
     float k = Clamp(app.endT / 1.5f, 0, 1);
-    Rectangle r = {360, 110, 560, 480};
+    Rectangle r = {360, 96, 560, 510};
     DrawRectangleRounded(r, 0.08f, 8, Fade({10, 8, 24, 255}, 0.85f * k));
     DrawRectangleRoundedLinesEx(r, 0.08f, 8, 2, Fade(kGold, k));
     textGlow("ВСЕЛЕННАЯ ПОГЛОЩЕНА", 640, r.y + 20, 40, Fade(kText, k), CENTER, Fade({150, 125, 255, 255}, k));
@@ -1214,6 +1391,7 @@ void drawEnd()
         text(b, r.x + r.width - 50, y, 18, Fade(kText, k), RIGHT, true);
         y += 30;
     };
+    row("Вселенных поглощено", std::to_string(kUniverseCount) + " / " + std::to_string(kUniverseCount));
     row("Заходов", std::to_string(g.runs));
     row("Время в космосе", fmtTime(g.playTime));
     char buf[32];
@@ -1221,7 +1399,7 @@ void drawEnd()
     row("Рекорд размера", buf);
     row("Поглощено массы", fmtNum(g.total));
     int lv = 0, maxLv = 0;
-    for (size_t i = 1; i < kNodes.size(); i++) { lv += g.level((int)i); maxLv += kNodes[i].maxLevel; }
+    for (size_t i = 1; i < kNodes.size(); i++) { lv += g.level((int)i); maxLv += g.levelCap((int)i); }
     row("Уровней прокачки", std::to_string(lv) + " / " + std::to_string(maxLv));
     if (std::fmod(app.t, 1.0f) < 0.7f) text("R — сыграть снова     Esc — выход", 640, r.y + r.height + 24, 20, Fade(kText, k), CENTER, true);
 }
@@ -1279,6 +1457,38 @@ void devScene(const std::string &scene)
         app.zoom = g.zoomFor(g.R);
     }
     if (scene == "runend") { g.timeLeft = 0.01; }
+    if (scene == "uni") { buyRounds(3e8, 20); g.phase = Phase::UniverseClear; app.screen = Screen::UniverseIntro; app.uniT = 2; }
+    if (scene == "core" || scene == "power") {
+        buyRounds(scene == "core" ? 1e10 : 3e6, 30);
+        if (scene == "power") g.universe = 2;
+        startRun();
+        for (auto &o : g.objs)
+            if (o.kind == K_CORE) {
+                float dx = -o.p.x, dy = -o.p.y, d = std::hypot(dx, dy);
+                g.pos = {o.p.x + dx / d * (o.size + g.R * 1.2f), o.p.y + dy / d * (o.size + g.R * 1.2f)};
+                o.hp = 0.55f;
+            }
+        if (scene == "power") {
+            Kind ks[] = {K_MAGNET, K_NOVA, K_CHRONO, K_DOUBLE};
+            for (int k = 0; k < 4; k++) {
+                Obj o;
+                o.kind = ks[k];
+                o.size = g.R * 0.4f;
+                o.p = {g.pos.x + (k - 1.5f) * g.R * 3.2f, g.pos.y - g.R * 3.5f};
+                g.objs.push_back(o);
+            }
+            g.magnetLeft = 4;
+            g.doubleLeft = 5;
+        }
+        for (int k = 0; k < 40; k++) {
+            Vec target = g.pos;
+            for (auto &o : g.objs) if (o.kind == K_CORE) target = o.p;
+            g.update(1.0 / 30, target, false, false);
+            g.events.clear();
+        }
+        app.cam = {g.pos.x, g.pos.y};
+        app.zoom = g.zoomFor(g.R);
+    }
     if (scene == "end") { app.screen = Screen::End; app.endT = 3; app.realTime = 534; }
 }
 
@@ -1362,7 +1572,13 @@ int main()
             app.collapseT += dt;
             addShake(4 + app.collapseT * 4);
             app.zoom *= 1 + dt * 0.8f;
-            if (app.collapseT > 4.5f) {
+            if (app.collapseT > 4.5f && app.collapseToNext) {
+                app.screen = Screen::UniverseIntro;
+                app.uniT = 0;
+                app.flash = 1;
+                app.parts.clear();
+                app.shocks.clear();
+            } else if (app.collapseT > 4.5f) {
                 app.screen = Screen::End;
                 app.endT = 0;
                 app.flash = 1;
@@ -1372,6 +1588,15 @@ int main()
                     float a = frand(0, 2 * PI), s = frand(100, 900) / app.zoom;
                     app.parts.push_back({{app.cam.x, app.cam.y}, {std::cos(a) * s, std::sin(a) * s}, 3, 3, frand(2, 6), c});
                 }
+            }
+            break;
+        case Screen::UniverseIntro:
+            app.realTime += dt;
+            app.uniT += dt;
+            if (app.uniT > 1.0f && (gClicks > 0 || keyHit(KEY_SPACE) || keyHit(KEY_ENTER))) {
+                g.nextUniverse();
+                app.screen = Screen::Tree;
+                app.audio.play(SFX_RANK, 1.2f);
             }
             break;
         case Screen::End:
@@ -1412,6 +1637,11 @@ int main()
             BeginMode2D(ui);
             drawTree(m, hovered);
             drawFloats();
+            EndMode2D();
+            break;
+        case Screen::UniverseIntro:
+            BeginMode2D(ui);
+            drawUniverseIntro();
             EndMode2D();
             break;
         case Screen::End:
