@@ -1,5 +1,6 @@
-// Логика игры «Горизонт событий». Ничего не знает о графике и звуке:
-// интерфейс читает состояние и забирает события из очереди.
+// Логика игры «Горизонт событий»: заходы, в которых чёрная дыра летает по космосу
+// и поглощает всё, что меньше неё, и дерево прокачки между заходами.
+// Ничего не знает о графике и звуке: интерфейс читает состояние и события.
 #pragma once
 
 #include <array>
@@ -10,176 +11,174 @@
 
 namespace bh {
 
-constexpr int kGenCount = 10;
-constexpr double kGoal = 3e12;         // масса для поглощения Вселенной
-constexpr double kCostGrowth = 1.15;
-constexpr int kMilestones[] = {10, 25, 50, 100};
+struct Vec {
+    float x = 0, y = 0;
+};
 
-struct GenDef {
+// ---------- объекты космоса ----------
+constexpr int kTierCount = 11;  // 0..9 — обычные объекты, 10 — Ядро Вселенной
+
+struct TierDef {
     const char *name;
-    const char *desc;
-    double baseCost;
-    double rate;  // масса в секунду за штуку
+    float size;    // радиус в мировых единицах
+    double value;  // масса за поглощение
 };
 
-extern const std::array<GenDef, kGenCount> kGens;
+extern const std::array<TierDef, kTierCount> kTiers;
 
-enum class Branch { Root, Gravity, Accretion, Cosmos, Dark };
+enum Kind { K_TIER, K_ANTI, K_PULSAR, K_RIVAL, K_CLOCK, K_DARK, K_GOLD };
 
-enum NodeId {
-    N_ROOT,
-    // Гравитация — сила клика
-    G_STRONG, G_TIDAL, G_COMBO, G_JETS, G_RESONANCE, G_WAVE, G_SPAGHETTI, G_KERR,
-    // Аккреция — производство
-    A_NEBULA, A_BELT, A_DISK, A_GIANTS, A_SYNERGY, A_FORGE, A_PHOTON, A_QUASAR,
-    // Космос — события и удача
-    C_WANDER, C_MAGNETAR, C_INTERCEPT, C_SUPERNOVA, C_METEOR, C_WORMHOLE, C_HAWKING, C_ATTRACTOR,
-    // Тёмная материя — способности (цена в тёмной материи)
-    D_WARP, D_RUSH, D_PORTAL, D_ECHO, D_FLOW, D_FOAM, D_ENERGY,
-    N_COUNT
+struct Obj {
+    Kind kind = K_TIER;
+    int tier = 0;
+    Vec p, v;
+    float size = 4;
+    float rot = 0, spin = 0;
+    float beam = 0;          // угол луча пульсара
+    float hurtCd = 0;
+    bool pulled = false;
+    bool dead = false;
+    uint32_t id = 0;
 };
+
+// ---------- дерево прокачки ----------
+enum Stat {
+    ST_SIZE, ST_SPEED, ST_PULL, ST_PULLSTR, ST_EAT, ST_GROWTH, ST_TIME, ST_VALUE, ST_VALUEX, ST_TIERVAL,
+    ST_DENSITY, ST_RICH, ST_COMBO, ST_COMBOWIN, ST_CRIT, ST_CRITMULT, ST_CLOCK, ST_CLOCKVAL, ST_ARMOR,
+    ST_GOLD, ST_CHAIN, ST_SAT, ST_SATSIZE, ST_DASH, ST_DASHCD, ST_COLLAPSE, ST_COLLAPSEPOW, ST_DARK,
+    ST_INTEREST, ST_MAGNET, ST_TIMEFEED, ST_ANTIEAT, ST_LOOP, ST_RIVAL, ST_SWARM, ST_PHANTOM, ST_FINAL,
+};
+
+enum class Branch { Root, Gravity, Growth, Time, Wealth, Cosmos, Dark };
 
 struct NodeDef {
-    NodeId id;
     const char *name;
-    const char *desc;
-    double cost;     // масса, а для ветки Dark — тёмная материя
-    NodeId parent;
+    const char *desc;   // что даёт один уровень
+    Stat stat;
+    double value;       // величина за уровень
+    int param;          // для ST_TIERVAL: первый ярус (диапазон 2 яруса)
+    int maxLevel;
+    double cost;        // цена первого уровня
+    double growth;      // рост цены за уровень
+    int parent;
     Branch branch;
-    int row, col;    // позиция в дереве: ряд снизу вверх, колонка -1/0/1 внутри ветки
+    int ring;           // кольцо созвездия
+    float offset;       // смещение угла от оси ветки, градусы
 };
 
-extern const std::array<NodeDef, N_COUNT> kNodes;
+extern const std::vector<NodeDef> kNodes;
 
-enum AchId {
-    ACH_FIRST, ACH_CLICK100, ACH_CLICK1000, ACH_COMBO, ACH_CRIT, ACH_COMET1, ACH_COMET10,
-    ACH_MASS1K, ACH_MASS1M, ACH_MASS1B, ACH_ALLGENS, ACH_TREE16, ACH_TREEALL, ACH_FRENZY,
-    ACH_PERFECT, ACH_INTERCEPT, ACH_RIVAL, ACH_METEOR, ACH_ABILITY, ACH_MILESTONE, ACH_DARK,
-    ACH_COUNT
+struct Stats {
+    double size = 13, speed = 1, pull = 1, pullStr = 1, eat = 0.85, growth = 1, time = 15;
+    double value = 1, tierVal[kTierCount] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+    double density = 1, rich = 0, comboMax = 1.5, comboWin = 0.6, crit = 0, critMult = 5;
+    double clock = 0, clockVal = 2, armor = 0, gold = 0.002, chain = 0;
+    int sats = 0;
+    double satSize = 1;
+    bool dash = false;
+    double dashCd = 4;
+    bool collapse = false;
+    double collapseCd = 25, collapsePow = 1;
+    double dark = 0.004, interest = 0, magnet = 1, timeFeed = 0;
+    bool antiEat = false;
+    double loop = 0, rival = 1;
+    int swarm = 0;
+    bool phantom = false, final = false;
 };
 
-struct AchDef {
-    const char *name;
-    const char *desc;
-};
-
-extern const std::array<AchDef, ACH_COUNT> kAchs;
-
-enum Ability { AB_WARP, AB_RUSH, AB_PORTAL, AB_COUNT };
-
-struct AbilityDef {
-    const char *name;
-    const char *desc;
-    NodeId node;
-    double cooldown;
-    double duration;  // 0 — мгновенная
-};
-
-extern const std::array<AbilityDef, AB_COUNT> kAbilities;
-
+// ---------- события для интерфейса ----------
 enum class EvType {
-    Click, Buy, Node, Achievement, Comet, Frenzy, Wave, Rank, CometSpawn, Collapse,
-    Milestone, Flare, RivalSpawn, RivalHit, RivalKilled, RivalLeft, MeteorStart, Meteor,
-    Intercept, Ability, Dark, Foam
+    Eat, Hurt, Clock, Dark, Chain, RivalEaten, RunStart, RunEnd, Dash, Collapse, LoopSave, Win, NodeBuy, SatEat, Gold
 };
 
 struct Event {
     EvType type;
     double value = 0;
-    int index = 0;
+    int index = 0;      // ярус/вид
+    Vec p;
     bool crit = false;
-    bool perfect = false;
+    float size = 0;
 };
+
+enum class Phase { Tree, Run, RunEnd, Won };
 
 class Game {
 public:
-    explicit Game(uint32_t seed = 1);
+    Game() = default;  // глобальные объекты: reset() вызывается явно, после статической инициализации
+    explicit Game(uint32_t seed);
     void reset(uint32_t seed);
 
-    void update(double dt);
+    // Дерево
+    int level(int node) const { return levels_[node]; }
+    bool nodeVisible(int node) const;
+    bool nodeAvailable(int node) const;  // родитель открыт и есть куда расти
+    double nodeCost(int node) const;
+    bool canBuy(int node) const;
+    bool buyNode(int node);
+    int affordableCount() const;
+    const Stats &stats() const { return st_; }
 
-    // Действия игрока. Возвращают true, если что-то произошло.
-    bool click();
-    int buyGen(int i, int amount);  // amount <= 0 — сколько хватит; возвращает купленное
-    bool buyNode(NodeId id);
-    bool catchComet();
-    bool hitRival();
-    bool catchMeteor();
-    bool intercept(int gen);
-    bool useAbility(Ability a);
-    bool collapse();
+    // Заход
+    void startRun();
+    // target — куда ведём дыру (мировые координаты)
+    void update(double dt, Vec target, bool dash, bool collapse);
+    void finishRunScreen() { if (phase == Phase::RunEnd) phase = Phase::Tree; }
 
-    // Запросы
-    double income() const;            // масса/с с учётом всех бонусов
-    double genIncome(int i) const;    // доход одного типа объектов
-    double baseClick() const;         // клик без крита, комбо и резонанса
-    double comboMult() const;
-    double comboMax() const;
-    double critChance() const;
-    double critMult() const;
-    double genCost(int i) const;
-    double genCostN(int i, int n) const;
-    int genAffordable(int i) const;
-    double genMult(int i) const;
-    int milestoneLevel(int i) const;
-    bool genVisible(int i) const;
-    bool hasNode(NodeId id) const { return nodes_[id]; }
-    bool nodeAvailable(NodeId id) const;  // родитель куплен, сам — нет
-    bool canAffordNode(NodeId id) const;
-    int nodesOwned() const;
-    int achCount() const;
-    bool hasAch(int a) const { return achs_[a]; }
-    int rank() const;
-    const char *rankName() const;
-    double horizon() const;           // 0..1, растёт с массой
-    double resonancePhase() const;    // 0..1, кольцо резонанса; около 1 — идеальный момент
-    bool resonanceWindow() const;
-    double timeScale() const { return abilityLeft[AB_WARP] > 0 ? 3.0 : 1.0; }
-    bool abilityUnlocked(Ability a) const { return hasNode(kAbilities[a].node); }
-    double abilityCooldown(Ability a) const;
+    // Камера: радиус дыры на экране и масштаб
+    float zoomFor(float R) const;
+    float viewRadius() const;  // половина диагонали экрана в мировых единицах
+    bool canEat(const Obj &o) const;
+    float holeR() const { return R; }
 
-    double mass = 0, total = 0, time = 0;
-    double dark = 0, darkTotal = 0;   // тёмная материя
-    long clicks = 0;
-    int combo = 0;
+    // Состояние
+    Phase phase = Phase::Tree;
+    double mass = 0, dark = 0, total = 0;
+    double playTime = 0;  // только время заходов
+    int runs = 0;
+    double bestR = 0;
+
+    // Текущий заход
+    Vec pos, vel;
+    float R = 13;
+    double timeLeft = 0, runTime = 0, runMass = 0;
+    int runEaten = 0, biggestTier = -1, combo = 0;
     double comboTimer = 0;
-    std::array<int, kGenCount> gens{};
-    double frenzyLeft = 0;
-    double cometLeft = 0, cometTotalTime = 9, cometTimer = 0;
-    int cometsCaught = 0, crits = 0, perfects = 0, intercepts = 0, meteorsCaught = 0;
-    // вспышка: один тип объектов ×5
-    int flareGen = -1;
-    double flareLeft = 0, flareTimer = 0;
-    // соперник
-    bool rivalActive = false;
-    double rivalHp = 0, rivalMaxHp = 0, rivalStolen = 0, rivalLeft = 0, rivalTimer = 0;
-    float rivalX = 0.5f, rivalY = 0.5f;  // позиция в долях центральной области
-    int rivalsKilled = 0;
-    // метеоритный дождь
-    double meteorLeft = 0, meteorTimer = 0;
-    // способности
-    std::array<double, AB_COUNT> abilityCd{};
-    std::array<double, AB_COUNT> abilityLeft{};
-    bool won = false;
-
+    double dashCd = 0, dashLeft = 0, collapseCd = 0, collapseLeft = 0;
+    bool loopUsed = false;
+    float satAngle = 0;
+    double hurtFlash = 0;
+    std::vector<Obj> objs;
     std::vector<Event> events;
 
-private:
-    void gain(double m) { mass += m; total += m; }
-    void gainDark(double d, const char *why);
-    void checkAchievements();
-    void unlock(AchId a);
-    double rnd() { return std::uniform_real_distribution<double>(0, 1)(rng_); }
-    double nextCometDelay();
-    void tickEvents(double dt);
+    static constexpr float kScreenHalfDiag = 734;
 
-    std::array<bool, N_COUNT> nodes_{};
-    std::array<bool, ACH_COUNT> achs_{};
-    std::array<int, kGenCount> milestoneSeen_{};
-    int lastRank_ = 0;
+private:
+    void recompute();
+    void spawnAround(bool initial);
+    Obj makeObj(int tier, Vec p);
+    int pickTier();
+    void eat(Obj &o, bool bySat);
+    void hurt(double seconds, Vec at);
+    double tierValue(int tier) const;
+    float rnd() { return std::uniform_real_distribution<float>(0, 1)(rng_); }
+    float rnd(float a, float b) { return a + (b - a) * rnd(); }
+
+    std::vector<int> levels_;
+    Stats st_;
     std::mt19937 rng_;
+    uint32_t nextId_ = 1;
+    double spawnAcc_ = 0;
+    double clockCd_ = 0, darkCd_ = 0, goldCd_ = 0;
+    float runArea_ = 0;
+    double timeGained_ = 0;  // прибавки за заход ограничены стартовым временем
+    void addTime(double s);
+    bool kindOnField(Kind k) const;
 };
 
 std::string fmtNum(double v);
+
+// Ручки баланса (подобраны симулятором tools/sim.cpp)
+extern double kRingCost, kLevelGrowthAdd;
+extern float kGrowthK;
 
 }  // namespace bh

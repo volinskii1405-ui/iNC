@@ -1,5 +1,6 @@
 // «Горизонт событий» — инкрементальная игра про чёрную дыру.
-// Графика и интерфейс на raylib. Логика — в Game.cpp.
+// В заходе дыра летит за курсором и поглощает всё, что меньше неё;
+// между заходами — созвездие прокачки. Графика на raylib, логика — в Game.cpp.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -29,53 +30,78 @@ GLFWmousebuttonfun glfwSetMouseButtonCallback(GLFWwindow *, GLFWmousebuttonfun);
 namespace {
 
 GLFWmousebuttonfun gPrevMouseCb = nullptr;
-int gPendingClicks = 0;  // нажатия ЛКМ с прошлого кадра
-int gClicks = 0;         // нажатия ЛКМ в текущем кадре
+int gPendingClicks = 0, gPendingRight = 0;
+int gClicks = 0, gRight = 0;
 std::vector<int> gKeys;  // клавиши, нажатые в этом кадре (из очереди raylib — не теряются)
-
-bool keyHit(int key) { return std::find(gKeys.begin(), gKeys.end(), key) != gKeys.end(); }
 
 void onMouseButton(GLFWwindow *w, int button, int action, int mods)
 {
-    if (button == 0 && action == 1) gPendingClicks++;
+    if (action == 1 && button == 0) gPendingClicks++;
+    if (action == 1 && button == 1) gPendingRight++;
     if (gPrevMouseCb) gPrevMouseCb(w, button, action, mods);
 }
 
+bool keyHit(int key) { return std::find(gKeys.begin(), gKeys.end(), key) != gKeys.end(); }
+
 constexpr float VW = 1280, VH = 720;
-constexpr Vector2 kCenter = {640, 405};
-constexpr Rectangle kLeftPanel = {16, 96, 330, 608};
-constexpr Rectangle kRightPanel = {934, 96, 330, 608};
-constexpr Rectangle kTreeButton = {950, 108, 298, 56};
-constexpr Rectangle kBuyModeButton = {kLeftPanel.x + 214, kLeftPanel.y + 8, 104, 26};
-constexpr Rectangle kCollapseButton = {470, 548, 340, 58};
-constexpr float kCardH = 52, kCardGap = 4;
+constexpr Vector2 kScreenC = {640, 360};
+constexpr Rectangle kStartButton = {1010, 642, 252, 62};
+constexpr float kRingStep = 128;
 
 // ---------- палитра ----------
 const Color kBg = {6, 5, 16, 255};
-const Color kPanel = {16, 14, 36, 205};
+const Color kPanel = {16, 14, 36, 220};
 const Color kPanelEdge = {90, 80, 170, 120};
 const Color kText = {232, 228, 255, 255};
 const Color kDim = {150, 145, 190, 255};
 const Color kAccent = {255, 170, 70, 255};
 const Color kGood = {120, 240, 150, 255};
 const Color kBad = {255, 100, 110, 255};
-const Color kGravity = {150, 125, 255, 255};
-const Color kAccretion = {255, 150, 60, 255};
-const Color kCosmos = {70, 210, 255, 255};
-const Color kDark = {235, 90, 210, 255};
 const Color kGold = {255, 215, 90, 255};
+const Color kDarkC = {235, 90, 210, 255};
+const Color kTimeC = {80, 220, 255, 255};
 const Color kRival = {255, 60, 70, 255};
 
 Color branchColor(Branch b)
 {
     switch (b) {
-    case Branch::Gravity: return kGravity;
-    case Branch::Accretion: return kAccretion;
-    case Branch::Cosmos: return kCosmos;
-    case Branch::Dark: return kDark;
+    case Branch::Gravity: return {150, 125, 255, 255};
+    case Branch::Growth: return {110, 230, 130, 255};
+    case Branch::Time: return kTimeC;
+    case Branch::Wealth: return kGold;
+    case Branch::Cosmos: return {255, 140, 70, 255};
+    case Branch::Dark: return kDarkC;
     default: return kText;
     }
 }
+
+const char *branchName(Branch b)
+{
+    switch (b) {
+    case Branch::Gravity: return "ГРАВИТАЦИЯ";
+    case Branch::Growth: return "РОСТ";
+    case Branch::Time: return "ВРЕМЯ";
+    case Branch::Wealth: return "БОГАТСТВО";
+    case Branch::Cosmos: return "КОСМОС";
+    case Branch::Dark: return "ТЁМНАЯ МАТЕРИЯ";
+    default: return "";
+    }
+}
+
+float branchAngle(Branch b)
+{
+    switch (b) {
+    case Branch::Gravity: return -90;
+    case Branch::Time: return -30;
+    case Branch::Wealth: return 30;
+    case Branch::Cosmos: return 90;
+    case Branch::Dark: return 150;
+    case Branch::Growth: return -150;
+    default: return 0;
+    }
+}
+
+bool hover(Rectangle r, Vector2 m) { return CheckCollisionPointRec(m, r); }
 
 float frand(float a = 0, float b = 1) { return a + (b - a) * (float)GetRandomValue(0, 100000) / 100000.0f; }
 
@@ -88,13 +114,9 @@ Color lerpColor(Color a, Color b, float t)
 
 // ---------- шрифты и текст ----------
 Font gReg, gBold;
-
 enum Align { LEFT, CENTER, RIGHT };
 
-Vector2 measure(const std::string &s, float size, bool bold = false)
-{
-    return MeasureTextEx(bold ? gBold : gReg, s.c_str(), size, 0);
-}
+Vector2 measure(const std::string &s, float size, bool bold = false) { return MeasureTextEx(bold ? gBold : gReg, s.c_str(), size, 0); }
 
 void text(const std::string &s, float x, float y, float size, Color c, Align al = LEFT, bool bold = false)
 {
@@ -114,12 +136,18 @@ void textGlow(const std::string &s, float x, float y, float size, Color c, Align
     text(s, x, y, size, c, al, true);
 }
 
+void textShadow(const std::string &s, float x, float y, float size, Color c, Align al = CENTER)
+{
+    text(s, x + 2, y + 2, size, Fade(BLACK, 0.6f * c.a / 255.0f), al, true);
+    text(s, x, y, size, c, al, true);
+}
+
 Font loadFont(const unsigned char *data, int size)
 {
     std::vector<int> cps;
     for (int c = 32; c < 127; c++) cps.push_back(c);
     for (int c = 0x400; c < 0x460; c++) cps.push_back(c);
-    for (int c : {0xAB, 0xBB, 0xD7, 0xB0, 0x2014, 0x2013, 0x2026, 0x2022, 0x2192, 0x2605, 0x221E, 0x2191, 0x2713, 0x25C6})
+    for (int c : {0xAB, 0xBB, 0xD7, 0xB0, 0x2014, 0x2013, 0x2026, 0x2022, 0x2192, 0x2605, 0x221E, 0x2191, 0x2713, 0x25C6, 0x25B6, 0x2212})
         cps.push_back(c);
     Font f = LoadFontFromMemory(".ttf", data, size, 64, cps.data(), (int)cps.size());
     GenTextureMipmaps(&f.texture);
@@ -127,64 +155,42 @@ Font loadFont(const unsigned char *data, int size)
     return f;
 }
 
-// Делит длинное название на две строки по ближайшему к середине пробелу.
-std::vector<std::string> splitTwo(const std::string &s)
+std::string fmtTime(double s)
 {
-    if (s.size() < 22) return {s};
-    size_t mid = s.size() / 2, best = std::string::npos;
-    for (size_t i = 0; i < s.size(); i++)
-        if (s[i] == ' ' && (best == std::string::npos || (i > mid ? i - mid : mid - i) < (best > mid ? best - mid : mid - best)))
-            best = i;
-    if (best == std::string::npos) return {s};
-    return {s.substr(0, best), s.substr(best + 1)};
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%d:%02d", (int)s / 60, (int)s % 60);
+    return buf;
 }
 
 // ---------- эффекты ----------
 struct Particle {
-    Vector2 p, v;
-    float life, maxLife, size;
+    Vector2 p, v;  // мир
+    float life, maxLife, size;  // size — пиксели экрана
     Color c;
-    bool attract;
 };
 
 struct FloatText {
-    Vector2 p;
+    Vector2 p;  // экран
     float vy, life, maxLife, size;
     std::string s;
     Color c;
 };
 
-struct Infaller {
-    int type;
-    float r, ang, size, rot, spin;
-};
-
 struct Shock {
-    Vector2 c;
-    float r, speed, life, maxLife, thick;
+    Vector2 c;  // мир
+    float r, speed, life, maxLife, thick;  // пиксели экрана
     Color col;
-};
-
-struct Toast {
-    std::string title, name, sub;
-    Color col;
-    float t;
 };
 
 struct Star {
     Vector2 p;
-    float b, tw, speed, size;
+    float b, tw, depth, size;
 };
 
-struct Meteor {
-    Vector2 p, v;
-    float size, rot;
-};
-
-enum class Screen { Intro, Play, Collapse, End };
+enum class Screen { Intro, Run, RunEnd, Tree, Collapse, End };
 
 struct App {
-    Game game{1};
+    Game game;
     Audio audio;
     Shader hole{};
     bool shaderOk = false;
@@ -192,67 +198,56 @@ struct App {
     Texture2D white{};
 
     Screen screen = Screen::Intro;
-    bool treeOpen = false;
-    int buyMode = 0;        // 0: ×1, 1: ×10, 2: макс
-    float t = 0;            // реальное время
-    float shake = 0;
-    float pulse = 0;        // вспышка дыры от клика
-    float horizonShown = 0; // плавный рост дыры
-    float collapseT = 0;
-    float endT = 0;
-    float flash = 0;
-    float clickTokens = 20;
-    float infallAcc = 0;
-    float meteorAcc = 0;
-    float rivalHitFlash = 0;
-    float bannerT = 0;
-    Color bannerColor = kGold;
-    std::string bannerTitle, bannerText;
-    float cardShake[kGenCount] = {};
-    float cardFlash[kGenCount] = {};
-    float nodeFlash[N_COUNT] = {};
-    float abilityFlash[AB_COUNT] = {};
-    Vector2 cometFrom{}, cometCtrl{}, cometTo{};
+    float t = 0, realTime = 0;
+    float shake = 0, pulse = 0, flash = 0, hurtVignette = 0;
+    Vector2 cam{0, 0}, starScroll{0, 0};
+    float zoom = 2.5f;
     Vector2 camShake{};
+    float collapseT = 0, endT = 0, runEndT = 0;
+    double lastInterest = 0, runStartBest = 0;
+    float bannerT = 0;
+    std::string bannerTitle, bannerText;
+    Color bannerColor = kGold;
+    float eatSoundCd = 0;
+
+    // созвездие
+    Vector2 treeCam{0, 0};
+    float treeZoom = 0.85f;
+    bool dragging = false, pressed = false;
+    Vector2 pressPos{}, pressCam{};
+    std::vector<float> nodeFlash;
 
     std::vector<Particle> parts;
     std::vector<FloatText> floats;
-    std::vector<Infaller> infallers;
     std::vector<Shock> shocks;
-    std::vector<Toast> toasts;
     std::vector<Star> stars;
-    std::vector<Meteor> meteors;
 };
 
 App app;
 
-float holeRadius()
-{
-    float r = 36 + 50 * app.horizonShown;
-    if (app.screen == Screen::Collapse) r *= 1 + 12 * std::pow(app.collapseT / 4.5f, 5);
-    return r * (1 + 0.05f * app.pulse);
-}
-
-Vector2 rivalPos() { return {400 + app.game.rivalX * 480, 180 + app.game.rivalY * 280}; }
+Vector2 toScreen(float x, float y) { return {(x - app.cam.x) * app.zoom + kScreenC.x, (y - app.cam.y) * app.zoom + kScreenC.y}; }
+Vector2 toScreen(Vec p) { return toScreen(p.x, p.y); }
+Vec toWorld(Vector2 s) { return {(s.x - kScreenC.x) / app.zoom + app.cam.x, (s.y - kScreenC.y) / app.zoom + app.cam.y}; }
 
 void addShake(float s) { app.shake = std::max(app.shake, s); }
 
-void burst(Vector2 p, int n, Color c, float speed, float size, float life)
+void burstW(Vec p, int n, Color c, float speedPx, float sizePx, float life)
 {
     for (int i = 0; i < n; i++) {
-        float a = frand(0, 2 * PI), s = frand(0.3f, 1) * speed;
-        app.parts.push_back({p, {std::cos(a) * s, std::sin(a) * s}, life * frand(0.6f, 1), life, size * frand(0.5f, 1), c, false});
+        float a = frand(0, 2 * PI), s = frand(0.3f, 1) * speedPx / app.zoom;
+        app.parts.push_back({{p.x, p.y}, {std::cos(a) * s, std::sin(a) * s}, life * frand(0.6f, 1), life, sizePx * frand(0.5f, 1), c});
     }
 }
 
-void floatText(Vector2 p, const std::string &s, Color c, float size, float life = 1.2f)
+void floatText(Vector2 screenP, const std::string &s, Color c, float size, float life = 1.1f)
 {
-    app.floats.push_back({p, -60, life, life, size, s, c});
+    app.floats.push_back({screenP, -55, life, life, size, s, c});
+    if (app.floats.size() > 40) app.floats.erase(app.floats.begin());
 }
 
-void shock(Vector2 c, float speed, Color col, float life, float thick)
+void shockW(Vec c, float speedPx, Color col, float life, float thick)
 {
-    app.shocks.push_back({c, 0, speed, life, life, thick, col});
+    app.shocks.push_back({{c.x, c.y}, 0, speedPx, life, life, thick, col});
 }
 
 void banner(const std::string &title, const std::string &body, Color c)
@@ -260,55 +255,25 @@ void banner(const std::string &title, const std::string &body, Color c)
     app.bannerTitle = title;
     app.bannerText = body;
     app.bannerColor = c;
-    app.bannerT = 3.5f;
+    app.bannerT = 3.0f;
 }
 
-void toast(const std::string &title, const std::string &name, const std::string &sub, Color c)
+const Color kTierColors[kTierCount] = {{190, 170, 150, 255}, {160, 140, 120, 255}, {170, 230, 255, 255}, {220, 220, 230, 255},
+                                       {90, 170, 240, 255},  {230, 170, 110, 255}, {255, 220, 120, 255}, {255, 240, 200, 255},
+                                       {200, 140, 255, 255}, {120, 200, 255, 255}, {255, 255, 255, 255}};
+
+// ---------- рисование объектов (в начале координат, size — радиус в пикселях) ----------
+
+void drawTierIcon(int tier, float size, float t, float alpha)
 {
-    app.toasts.push_back({title, name, sub, c, 0});
-}
-
-void spawnInfaller(int type)
-{
-    static const float sizes[kGenCount] = {7, 10, 12, 15, 18, 19, 10, 20, 24, 28};
-    float a = frand(0, 2 * PI);
-    app.infallers.push_back({type, frand(620, 700), a, sizes[type] * frand(0.85f, 1.15f), frand(0, 360), frand(-90, 90)});
-}
-
-Vector2 infallerPos(const Infaller &f)
-{
-    return {kCenter.x + std::cos(f.ang) * f.r, kCenter.y + std::sin(f.ang) * f.r * 0.62f};
-}
-
-void suckParticles(int n, Color c)
-{
-    float R = holeRadius();
-    for (int i = 0; i < n; i++) {
-        float a = frand(0, 2 * PI), r = R * frand(3.0f, 4.5f);
-        Vector2 p = {kCenter.x + std::cos(a) * r, kCenter.y + std::sin(a) * r * 0.6f};
-        Vector2 tang = {-std::sin(a), std::cos(a) * 0.6f};
-        app.parts.push_back({p, Vector2Scale(tang, frand(80, 160)), 3, 3, frand(1.5f, 3), c, true});
-    }
-}
-
-const Color kGenColors[kGenCount] = {{190, 170, 150, 255}, {160, 140, 120, 255}, {220, 220, 230, 255}, {90, 170, 240, 255},
-                                     {230, 170, 110, 255}, {255, 220, 120, 255}, {170, 210, 255, 255}, {255, 240, 200, 255},
-                                     {200, 140, 255, 255}, {120, 200, 255, 255}};
-
-// ---------- рисование объектов ----------
-
-void drawGenIcon(int type, float size, float t, float alpha)
-{
-    // Рисует объект в начале координат (трансформация уже задана снаружи).
     auto A = [&](Color c) { return Fade(c, alpha * c.a / 255.0f); };
-    switch (type) {
-    case 0: {  // пыль
+    switch (tier) {
+    case 0: {
         static const Vector2 off[] = {{0, 0}, {-0.6f, -0.3f}, {0.5f, -0.5f}, {0.7f, 0.4f}, {-0.4f, 0.6f}, {0.1f, -0.9f}, {-0.9f, 0.2f}};
-        for (int i = 0; i < 7; i++)
-            DrawCircleV(Vector2Scale(off[i], size), size * (i == 0 ? 0.35f : 0.22f), A({190, 170, 150, 220}));
+        for (int i = 0; i < 7; i++) DrawCircleV(Vector2Scale(off[i], size), size * (i == 0 ? 0.35f : 0.22f), A({190, 170, 150, 230}));
         break;
     }
-    case 1: {  // астероид
+    case 1: {
         Vector2 pts[11];
         pts[0] = {0, 0};
         static const float rr[] = {1.0f, 0.8f, 0.95f, 0.7f, 0.9f, 1.05f, 0.75f, 0.92f, 0.85f};
@@ -322,89 +287,198 @@ void drawGenIcon(int type, float size, float t, float alpha)
         DrawCircleV({-size * 0.35f, size * 0.25f}, size * 0.14f, A({95, 85, 78, 255}));
         break;
     }
-    case 2:  // луна
+    case 2:  // комета
+        DrawTriangle({-size * 0.4f, -size * 0.45f}, {-size * 3.2f, 0}, {-size * 0.4f, size * 0.45f}, A({140, 210, 255, 90}));
+        DrawCircleGradient(0, 0, size * 1.3f, A({180, 230, 255, 140}), A({80, 160, 255, 0}));
+        DrawCircleV({0, 0}, size * 0.6f, A({235, 250, 255, 255}));
+        break;
+    case 3:
         DrawCircleV({0, 0}, size, A({200, 200, 210, 255}));
         DrawCircleV({size * 0.3f, -size * 0.25f}, size * 0.25f, A({160, 160, 172, 255}));
         DrawCircleV({-size * 0.35f, size * 0.3f}, size * 0.18f, A({160, 160, 172, 255}));
         DrawCircleV({-size * 0.2f, -size * 0.45f}, size * 0.12f, A({160, 160, 172, 255}));
         break;
-    case 3:  // планета-земля
-        DrawCircleV({0, 0}, size * 0.85f, A({70, 140, 220, 255}));
-        DrawCircleSector({0, 0}, size * 0.85f, 200, 340, 16, A({80, 190, 120, 255}));
-        DrawCircleSector({0, 0}, size * 0.85f, 20, 70, 10, A({80, 190, 120, 255}));
+    case 4:
+        DrawCircleV({0, 0}, size, A({70, 140, 220, 255}));
+        DrawCircleSector({0, 0}, size, 200, 340, 16, A({80, 190, 120, 255}));
+        DrawCircleSector({0, 0}, size, 20, 70, 10, A({80, 190, 120, 255}));
+        DrawRing({0, 0}, size * 0.95f, size * 1.1f, 0, 360, 32, A({160, 210, 255, 90}));
         break;
-    case 4:  // газовый гигант с кольцом
-        DrawCircleV({0, 0}, size * 0.8f, A({220, 160, 100, 255}));
-        DrawRectangleV({-size * 0.75f, -size * 0.2f}, {size * 1.5f, size * 0.14f}, A({180, 110, 70, 255}));
-        DrawRectangleV({-size * 0.7f, size * 0.15f}, {size * 1.4f, size * 0.12f}, A({240, 200, 150, 255}));
-        DrawEllipseLines(0, 0, size * 1.35f, size * 0.32f, A({230, 210, 170, 255}));
-        DrawEllipseLines(0, 0, size * 1.25f, size * 0.27f, A({230, 210, 170, 200}));
+    case 5:
+        DrawCircleV({0, 0}, size * 0.85f, A({220, 160, 100, 255}));
+        DrawRectangleV({-size * 0.8f, -size * 0.22f}, {size * 1.6f, size * 0.15f}, A({180, 110, 70, 255}));
+        DrawRectangleV({-size * 0.75f, size * 0.15f}, {size * 1.5f, size * 0.13f}, A({240, 200, 150, 255}));
+        DrawEllipseLines(0, 0, size * 1.45f, size * 0.34f, A({230, 210, 170, 255}));
+        DrawEllipseLines(0, 0, size * 1.35f, size * 0.29f, A({230, 210, 170, 200}));
         break;
-    case 5:  // звезда
-        DrawCircleGradient(0, 0, size * 1.4f, A({255, 230, 120, 140}), A({255, 120, 30, 0}));
-        DrawCircleV({0, 0}, size * 0.7f, A({255, 240, 170, 255}));
-        DrawCircleV({0, 0}, size * 0.45f, A({255, 255, 240, 255}));
+    case 6:
+        DrawCircleGradient(0, 0, size * 1.6f, A({255, 230, 120, 140}), A({255, 120, 30, 0}));
+        DrawCircleV({0, 0}, size * 0.8f, A({255, 240, 170, 255}));
+        DrawCircleV({0, 0}, size * 0.5f, A({255, 255, 240, 255}));
         break;
-    case 6: {  // нейтронная звезда с лучами
-        float a = t * 4;
-        for (int s = -1; s <= 1; s += 2) {
-            Vector2 d = {std::cos(a) * s, std::sin(a) * s};
-            Vector2 n = {-d.y, d.x};
-            Vector2 tip = Vector2Scale(d, size * 2.6f);
-            DrawTriangle(Vector2Scale(n, size * 0.25f), Vector2Scale(n, -size * 0.25f), tip, A({150, 200, 255, 150}));
-            DrawTriangle(Vector2Scale(n, -size * 0.25f), Vector2Scale(n, size * 0.25f), tip, A({150, 200, 255, 150}));
-        }
-        DrawCircleGradient(0, 0, size * 1.2f, A({170, 210, 255, 200}), A({80, 120, 255, 0}));
-        DrawCircleV({0, 0}, size * 0.45f, A({240, 248, 255, 255}));
-        break;
-    }
-    case 7: {  // звёздное скопление
+    case 7:
         DrawCircleGradient(0, 0, size * 1.1f, A({255, 230, 200, 70}), A({255, 200, 150, 0}));
-        for (int i = 0; i < 18; i++) {
-            float a = i * 2.39996f, r = std::sqrt(i / 18.0f) * size;
-            DrawCircleV({std::cos(a) * r, std::sin(a) * r}, size * (0.09f + 0.04f * (i % 3)),
+        for (int i = 0; i < 26; i++) {
+            float a = i * 2.39996f, r = std::sqrt(i / 26.0f) * size;
+            DrawCircleV({std::cos(a) * r, std::sin(a) * r}, size * (0.07f + 0.03f * (i % 3)),
                         A(i % 4 == 0 ? Color{180, 210, 255, 255} : Color{255, 240, 200, 255}));
         }
         break;
-    }
-    case 8:  // галактика
+    case 8:
         DrawCircleGradient(0, 0, size * 1.1f, A({190, 120, 255, 90}), A({60, 20, 120, 0}));
         for (int arm = 0; arm < 2; arm++)
-            for (int i = 0; i < 22; i++) {
-                float k = i / 22.0f;
-                float a = arm * PI + k * 4.2f + t * 0.5f;
+            for (int i = 0; i < 26; i++) {
+                float k = i / 26.0f;
+                float a = arm * PI + k * 4.2f + t * 0.3f;
                 Vector2 p = {std::cos(a) * k * size, std::sin(a) * k * size * 0.75f};
-                DrawCircleV(p, size * 0.07f * (1.2f - k), A(lerpColor({255, 230, 255, 255}, {150, 100, 255, 255}, k)));
+                DrawCircleV(p, size * 0.06f * (1.2f - k), A(lerpColor({255, 230, 255, 255}, {150, 100, 255, 255}, k)));
             }
-        DrawCircleV({0, 0}, size * 0.18f, A({255, 245, 230, 255}));
+        DrawCircleV({0, 0}, size * 0.16f, A({255, 245, 230, 255}));
         break;
-    case 9:  // сверхскопление — паутина
-        for (int i = 0; i < 7; i++) {
+    case 9:
+        DrawCircleGradient(0, 0, size * 1.1f, A({90, 150, 255, 50}), A({0, 0, 0, 0}));
+        for (int i = 0; i < 9; i++) {
             float a1 = i * 0.9f, a2 = (i + 3) * 0.9f;
             Vector2 p1 = {std::cos(a1) * size * 0.9f, std::sin(a1) * size * 0.7f};
             Vector2 p2 = {std::cos(a2) * size * 0.5f, std::sin(a2) * size * 0.8f};
-            DrawLineEx(p1, p2, size * 0.06f, A({120, 180, 255, 140}));
-            DrawCircleV(p1, size * 0.12f, A({170, 210, 255, 255}));
-            DrawCircleV(p2, size * 0.09f, A({220, 170, 255, 255}));
+            DrawLineEx(p1, p2, std::max(1.0f, size * 0.04f), A({120, 180, 255, 140}));
+            DrawCircleV(p1, size * 0.1f, A({170, 210, 255, 255}));
+            DrawCircleV(p2, size * 0.07f, A({220, 170, 255, 255}));
         }
+        break;
+    case 10:  // Ядро Вселенной
+        DrawCircleGradient(0, 0, size * 1.6f, A({255, 255, 255, 120}), A({200, 120, 255, 0}));
+        for (int i = 0; i < 6; i++) {
+            float a0 = t * 40 * (i % 2 ? 1 : -1) + i * 30;
+            DrawRing({0, 0}, size * (0.3f + i * 0.12f), size * (0.34f + i * 0.12f), a0, a0 + 240, 48,
+                     A(ColorFromHSV(std::fmod(t * 40 + i * 50, 360.0f), 0.5f, 1)));
+        }
+        DrawCircleV({0, 0}, size * 0.25f, A(WHITE));
         break;
     }
 }
 
-void drawIconAt(int type, Vector2 p, float size, float t, float rot = 0, float stretch = 1, float alpha = 1)
+void pushTransform(Vector2 sp, float rotDeg, float stretch)
 {
     rlPushMatrix();
-    rlTranslatef(p.x, p.y, 0);
-    rlRotatef(rot, 0, 0, 1);
+    rlTranslatef(sp.x, sp.y, 0);
+    rlRotatef(rotDeg, 0, 0, 1);
     rlScalef(stretch, 1 / std::sqrt(stretch), 1);
-    drawGenIcon(type, size, t, alpha);
-    rlPopMatrix();
 }
 
-void drawDarkIcon(Vector2 p, float r, Color c)
+void drawObj(const Obj &o)
 {
-    DrawPoly(p, 4, r, 0, c);
-    DrawPoly(p, 4, r * 0.5f, 0, Fade(WHITE, 0.6f));
+    Game &g = app.game;
+    Vector2 sp = toScreen(o.p);
+    float ss = o.size * app.zoom;
+    float margin = ss * (o.kind == K_PULSAR ? 10 : 3) + 20;
+    if (sp.x < -margin || sp.x > VW + margin || sp.y < -margin || sp.y > VH + margin) return;
+    bool edible = g.canEat(o);
+    float dx = g.pos.x - o.p.x, dy = g.pos.y - o.p.y;
+    float d = std::sqrt(dx * dx + dy * dy) + 0.01f;
+    float stretch = 1, rot = o.rot;
+    if (o.pulled && d < g.R * 3.5f) {
+        float k = Clamp(g.R / d, 0, 1.2f);
+        stretch = 1 + 2.8f * k * k;
+        rot = std::atan2(dy, dx) * RAD2DEG;
+    }
+    float alpha = Clamp((d - g.R * 0.75f) / (g.R * 0.35f), 0, 1);
+
+    switch (o.kind) {
+    case K_TIER: {
+        if (o.tier == 2 && !o.pulled) rot = std::atan2(o.v.y, o.v.x) * RAD2DEG;  // хвост кометы назад
+        pushTransform(sp, rot, stretch);
+        drawTierIcon(o.tier, ss, app.t, alpha);
+        rlPopMatrix();
+        if (!edible && o.tier < 10) {
+            // не по зубам — красная пунктирная обводка
+            for (int k = 0; k < 12; k++) {
+                float a0 = k * 30 + app.t * 15;
+                DrawRing(sp, ss * 1.12f, ss * 1.12f + 2, a0, a0 + 16, 4, Fade(kBad, 0.55f));
+            }
+        }
+        break;
+    }
+    case K_ANTI: {
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 1.8f, Fade({255, 40, 120, 255}, 0.5f), {0, 0, 0, 0});
+        EndBlendMode();
+        for (int k = 0; k < 8; k++) {
+            float a = (k * 45 + o.rot * 3) * DEG2RAD;
+            Vector2 tip = {sp.x + std::cos(a) * ss * 1.3f, sp.y + std::sin(a) * ss * 1.3f};
+            Vector2 l = {sp.x + std::cos(a + 0.35f) * ss * 0.6f, sp.y + std::sin(a + 0.35f) * ss * 0.6f};
+            Vector2 r = {sp.x + std::cos(a - 0.35f) * ss * 0.6f, sp.y + std::sin(a - 0.35f) * ss * 0.6f};
+            DrawTriangle(r, l, tip, {255, 60, 130, 255});
+            DrawTriangle(l, r, tip, {255, 60, 130, 255});
+        }
+        DrawCircleV(sp, ss * 0.65f, {120, 0, 50, 255});
+        DrawCircleV(sp, ss * 0.35f, edible ? kGood : Color{255, 120, 180, 255});
+        break;
+    }
+    case K_PULSAR: {
+        float bl = o.size * 6 * app.zoom;
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (float b : {o.beam, o.beam + PI}) {
+            Vector2 dir = {std::cos(b), std::sin(b)}, n = {-dir.y, dir.x};
+            Vector2 tip = Vector2Add(sp, Vector2Scale(dir, bl));
+            Vector2 a1 = Vector2Add(sp, Vector2Scale(n, ss * 0.3f)), a2 = Vector2Subtract(sp, Vector2Scale(n, ss * 0.3f));
+            Color bc = edible ? Color{150, 200, 255, 120} : Color{255, 120, 160, 150};
+            DrawTriangle(a1, a2, tip, bc);
+            DrawTriangle(a2, a1, tip, bc);
+        }
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 1.6f, Fade({170, 210, 255, 255}, 0.6f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawCircleV(sp, ss * 0.5f, {240, 248, 255, 255});
+        if (!edible)
+            for (int k = 0; k < 12; k++) {
+                float a0 = k * 30 + app.t * 15;
+                DrawRing(sp, ss * 1.2f, ss * 1.2f + 2, a0, a0 + 16, 4, Fade(kBad, 0.55f));
+            }
+        break;
+    }
+    case K_RIVAL: {
+        Color rc = edible ? kGood : kRival;
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 2.6f, Fade(rc, 0.3f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawCircleV(sp, ss, BLACK);
+        for (int i = 0; i < 3; i++)
+            DrawRing(sp, ss * (1.05f + i * 0.18f), ss * (1.12f + i * 0.18f), app.t * 180 + i * 70, app.t * 180 + i * 70 + 230, 32,
+                     Fade(rc, 0.85f - i * 0.2f));
+        textShadow(edible ? "ЕДА" : "СОПЕРНИК", sp.x, sp.y - ss * 1.7f - 16, 13, rc);
+        break;
+    }
+    case K_CLOCK: {
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 2, Fade(kTimeC, 0.5f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawCircleV(sp, ss, {20, 60, 80, 255});
+        DrawRing(sp, ss * 0.85f, ss, 0, 360, 24, kTimeC);
+        float a = app.t * 4;
+        DrawLineEx(sp, {sp.x + std::cos(a) * ss * 0.7f, sp.y + std::sin(a) * ss * 0.7f}, 2, kTimeC);
+        DrawLineEx(sp, {sp.x + std::cos(a * 0.1f) * ss * 0.45f, sp.y + std::sin(a * 0.1f) * ss * 0.45f}, 3, kTimeC);
+        break;
+    }
+    case K_DARK: {
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 2.2f, Fade(kDarkC, 0.55f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawPoly(sp, 4, ss, app.t * 60, kDarkC);
+        DrawPoly(sp, 4, ss * 0.5f, app.t * 60, Fade(WHITE, 0.7f));
+        break;
+    }
+    case K_GOLD: {
+        float a = std::atan2(o.v.y, o.v.x);
+        Vector2 back = {sp.x - std::cos(a) * ss * 5, sp.y - std::sin(a) * ss * 5};
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawLineEx(back, sp, ss * 0.8f, Fade(kGold, 0.5f));
+        DrawCircleGradient((int)sp.x, (int)sp.y, ss * 2.4f, Fade(kGold, 0.6f), {0, 0, 0, 0});
+        EndBlendMode();
+        DrawCircleV(sp, ss * 0.6f, {255, 250, 220, 255});
+        if (std::fmod(app.t, 0.5f) < 0.33f) textShadow("ЗОЛОТАЯ КОМЕТА", sp.x, sp.y - ss * 2 - 14, 13, kGold);
+        break;
+    }
+    }
 }
 
 // ---------- сцена ----------
@@ -412,138 +486,60 @@ void drawDarkIcon(Vector2 p, float r, Color c)
 void initStars()
 {
     app.stars.clear();
-    for (int i = 0; i < 420; i++)
-        app.stars.push_back({{frand(0, VW), frand(0, VH)}, frand(0.25f, 1), frand(0, 10), frand(2, 9), frand(0.6f, 1.8f)});
+    for (int i = 0; i < 380; i++)
+        app.stars.push_back({{frand(0, VW), frand(0, VH)}, frand(0.25f, 1), frand(0, 10), frand(0.03f, 0.35f), frand(0.6f, 1.8f)});
 }
 
-void drawBackground()
+float wrapf(float v, float m) { return v - std::floor(v / m) * m; }
+
+void drawBackground(Vector2 holeScreen, float holeRs, bool lens)
 {
-    Game &g = app.game;
     ClearBackground(kBg);
     float t = app.t;
-    DrawCircleGradient(260 + 30 * std::sin(t * 0.05f), 220, 420, {70, 30, 120, 70}, {0, 0, 0, 0});
-    DrawCircleGradient(1050, 520 + 20 * std::cos(t * 0.04f), 460, {20, 60, 120, 70}, {0, 0, 0, 0});
-    DrawCircleGradient(700, 120, 300, {120, 40, 80, 45}, {0, 0, 0, 0});
-    if (g.frenzyLeft > 0)
-        DrawCircleGradient(640, 400, 700, Fade({255, 60, 200, 255}, 0.18f + 0.08f * std::sin(t * 10)), {0, 0, 0, 0});
-    if (g.abilityLeft[AB_WARP] > 0)
-        DrawCircleGradient(640, 400, 760, Fade({60, 160, 255, 255}, 0.16f + 0.06f * std::sin(t * 6)), {0, 0, 0, 0});
-    if (g.rivalActive)
-        DrawCircleGradient((int)rivalPos().x, (int)rivalPos().y, 260, Fade(kRival, 0.12f), {0, 0, 0, 0});
-
-    // Звёзды с гравитационным линзированием вокруг дыры.
-    float R = holeRadius();
-    float E = R * 1.55f;
+    Vector2 sc = app.starScroll;
+    DrawCircleGradient((int)wrapf(260 - sc.x * 0.02f, VW + 600) - 300, (int)wrapf(220 - sc.y * 0.02f, VH + 600) - 300, 420, {70, 30, 120, 70}, {0, 0, 0, 0});
+    DrawCircleGradient((int)wrapf(1050 - sc.x * 0.03f, VW + 600) - 300, (int)wrapf(520 - sc.y * 0.03f, VH + 600) - 300, 460, {20, 60, 120, 70}, {0, 0, 0, 0});
+    DrawCircleGradient((int)wrapf(700 - sc.x * 0.015f, VW + 600) - 300, (int)wrapf(120 - sc.y * 0.015f, VH + 600) - 300, 300, {120, 40, 80, 45}, {0, 0, 0, 0});
+    float E = holeRs * 1.55f;
     for (auto &s : app.stars) {
-        Vector2 d = Vector2Subtract(s.p, kCenter);
-        float r = Vector2Length(d) + 0.001f;
-        float rl = (r + std::sqrt(r * r + 4 * E * E)) / 2;
-        Vector2 p = Vector2Add(kCenter, Vector2Scale(d, rl / r));
-        float tw = 0.65f + 0.35f * std::sin(app.t * 2 + s.tw);
-        float stretch = Clamp(rl / r, 1, 3);
+        Vector2 p = {wrapf(s.p.x - sc.x * s.depth, VW), wrapf(s.p.y - sc.y * s.depth, VH)};
+        float tw = 0.65f + 0.35f * std::sin(t * 2 + s.tw);
         Color c = Fade(lerpColor({170, 190, 255, 255}, {255, 240, 220, 255}, s.tw / 10), s.b * tw);
-        if (g.abilityLeft[AB_WARP] > 0) {
-            // искривление времени — звёзды вытягиваются в полосы
-            DrawLineEx(p, {p.x + s.speed * 3, p.y}, s.size * 0.7f, c);
-        } else if (stretch > 1.3f) {
-            Vector2 tang = Vector2Normalize({-d.y, d.x});
-            Vector2 a = Vector2Add(p, Vector2Scale(tang, s.size * stretch));
-            Vector2 b = Vector2Subtract(p, Vector2Scale(tang, s.size * stretch));
-            DrawLineEx(a, b, s.size * 0.8f, c);
-        } else {
-            DrawCircleV(p, s.size * 0.6f, c);
+        if (lens) {
+            Vector2 d = Vector2Subtract(p, holeScreen);
+            float r = Vector2Length(d) + 0.001f;
+            float rl = (r + std::sqrt(r * r + 4 * E * E)) / 2;
+            float stretch = Clamp(rl / r, 1, 3);
+            p = Vector2Add(holeScreen, Vector2Scale(d, rl / r));
+            if (stretch > 1.3f) {
+                Vector2 tang = Vector2Normalize({-d.y, d.x});
+                DrawLineEx(Vector2Add(p, Vector2Scale(tang, s.size * stretch)), Vector2Subtract(p, Vector2Scale(tang, s.size * stretch)), s.size * 0.8f, c);
+                continue;
+            }
         }
+        DrawCircleV(p, s.size * 0.6f, c);
     }
 }
 
-void drawHole()
+void drawHoleAt(Vector2 sp, float Rs, float heat, float frenzy)
 {
-    Game &g = app.game;
-    float R = holeRadius();
-    DrawCircleV(kCenter, R, BLACK);
-
-    // Падающие объекты
-    for (auto &f : app.infallers) {
-        float k = Clamp(R / f.r, 0, 1);
-        float stretch = 1 + 3.5f * k * k;
-        Vector2 p = infallerPos(f);
-        float size = f.size * (0.45f + 0.55f * (1 - k * k));
-        float rot = f.ang * RAD2DEG;
-        drawIconAt(f.type, p, size, app.t, stretch > 1.15f ? rot : f.rot, stretch, Clamp((f.r - R) / (R * 0.4f), 0, 1));
-    }
-
-    float quad = R * 4.4f;
+    DrawCircleV(sp, Rs, BLACK);
+    float quad = Rs * 4.4f;
     BeginBlendMode(BLEND_ADDITIVE);
     if (app.shaderOk) {
-        float tt = app.t * (g.abilityLeft[AB_WARP] > 0 ? 3 : 1), pu = app.pulse, fr = g.frenzyLeft > 0 ? 1.0f : 0.0f,
-              heat = app.horizonShown;
+        float tt = app.t, pu = app.pulse;
         SetShaderValue(app.hole, app.locTime, &tt, SHADER_UNIFORM_FLOAT);
         SetShaderValue(app.hole, app.locPulse, &pu, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(app.hole, app.locFrenzy, &fr, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(app.hole, app.locFrenzy, &frenzy, SHADER_UNIFORM_FLOAT);
         SetShaderValue(app.hole, app.locHeat, &heat, SHADER_UNIFORM_FLOAT);
         BeginShaderMode(app.hole);
-        DrawTexturePro(app.white, {0, 0, 1, 1}, {kCenter.x - quad, kCenter.y - quad, quad * 2, quad * 2}, {0, 0}, 0, WHITE);
+        DrawTexturePro(app.white, {0, 0, 1, 1}, {sp.x - quad, sp.y - quad, quad * 2, quad * 2}, {0, 0}, 0, WHITE);
         EndShaderMode();
     } else {
-        DrawRing(kCenter, R * 1.0f, R * 1.08f, 0, 360, 64, {255, 200, 140, 255});
-        for (int i = 0; i < 40; i++) {
-            float a = i * 2 * PI / 40 + app.t * 0.8f;
-            float rr = R * (1.7f + 2.2f * ((i * 37) % 40) / 40.0f);
-            Vector2 p = {kCenter.x + std::cos(a) * rr, kCenter.y + std::sin(a) * rr * 0.2f};
-            DrawCircleV(p, 3, Fade(kAccent, 0.6f));
-        }
-    }
-
-    // Кольцо резонанса: сжимается к горизонту, кликать — когда оно золотое.
-    if (g.hasNode(G_RESONANCE) && app.screen == Screen::Play) {
-        float ph = (float)g.resonancePhase();
-        float rr = R * (1.08f + 1.7f * (1 - ph));
-        bool win = g.resonanceWindow();
-        Color c = win ? kGold : Fade(kGravity, 0.25f + 0.45f * ph);
-        DrawRing(kCenter, rr - (win ? 3.5f : 1.5f), rr, 0, 360, 96, c);
+        DrawRing(sp, Rs, Rs * 1.08f, 0, 360, 64, {255, 200, 140, 255});
+        DrawRing(sp, Rs * 1.6f, Rs * 3.5f, 0, 360, 64, Fade(kAccent, 0.25f));
     }
     EndBlendMode();
-}
-
-void drawRival()
-{
-    Game &g = app.game;
-    if (!g.rivalActive) return;
-    Vector2 p = rivalPos();
-    float r = 22 + 3 * std::sin(app.t * 7);
-    // Поток массы от нашей дыры к сопернику
-    if (GetRandomValue(0, 2) == 0) {
-        Vector2 from = Vector2Add(kCenter, Vector2Scale(Vector2Normalize(Vector2Subtract(p, kCenter)), holeRadius() * 1.3f));
-        Vector2 v = Vector2Scale(Vector2Normalize(Vector2Subtract(p, from)), frand(180, 260));
-        app.parts.push_back({from, v, Vector2Distance(from, p) / Vector2Length(v), 2, frand(1.5f, 3), kRival, false});
-    }
-    BeginBlendMode(BLEND_ADDITIVE);
-    DrawCircleGradient((int)p.x, (int)p.y, r * 3, Fade(kRival, 0.35f), {0, 0, 0, 0});
-    EndBlendMode();
-    DrawCircleV(p, r, BLACK);
-    for (int i = 0; i < 3; i++) DrawRing(p, r + 2 + i * 5, r + 4 + i * 5, app.t * 200 + i * 60, app.t * 200 + i * 60 + 220, 32, Fade(kRival, 0.8f - i * 0.2f));
-    if (app.rivalHitFlash > 0) DrawCircleV(p, r, Fade(WHITE, app.rivalHitFlash * 0.6f));
-    // Полоска здоровья
-    float k = (float)(g.rivalHp / g.rivalMaxHp);
-    Rectangle bar = {p.x - 44, p.y - r - 32, 88, 9};
-    DrawRectangleRounded(bar, 1, 6, {40, 10, 16, 230});
-    DrawRectangleRounded({bar.x, bar.y, bar.width * k, bar.height}, 1, 6, kRival);
-    char buf[128];
-    std::snprintf(buf, sizeof buf, "СОПЕРНИК  %.0f с", g.rivalLeft);
-    text(buf, p.x, bar.y - 18, 13, kRival, CENTER, true);
-    text("крадёт " + fmtNum(g.rivalStolen), p.x, p.y + r + 14, 13, Fade(kRival, 0.9f), CENTER);
-}
-
-void drawMeteors()
-{
-    for (auto &m : app.meteors) {
-        Vector2 tail = Vector2Subtract(m.p, Vector2Scale(m.v, 0.12f));
-        BeginBlendMode(BLEND_ADDITIVE);
-        DrawLineEx(tail, m.p, m.size * 0.9f, Fade({255, 140, 60, 255}, 0.6f));
-        DrawCircleGradient((int)m.p.x, (int)m.p.y, m.size * 2.2f, Fade({255, 160, 80, 255}, 0.5f), {0, 0, 0, 0});
-        EndBlendMode();
-        drawIconAt(1, m.p, m.size, app.t, m.rot);
-    }
 }
 
 void drawEffects()
@@ -551,682 +547,525 @@ void drawEffects()
     BeginBlendMode(BLEND_ADDITIVE);
     for (auto &s : app.shocks) {
         float k = s.life / s.maxLife;
-        DrawRing(s.c, s.r, s.r + s.thick * k, 0, 360, 96, Fade(s.col, k * 0.8f));
+        DrawRing(toScreen(s.c.x, s.c.y), s.r, s.r + s.thick * k, 0, 360, 96, Fade(s.col, k * 0.8f));
     }
     for (auto &p : app.parts) {
         float k = p.life / p.maxLife;
-        DrawCircleV(p.p, p.size * (0.4f + 0.6f * k), Fade(p.c, std::min(1.0f, k * 1.5f)));
+        DrawCircleV(toScreen(p.p.x, p.p.y), p.size * (0.4f + 0.6f * k), Fade(p.c, std::min(1.0f, k * 1.5f)));
     }
     EndBlendMode();
 }
 
-Vector2 cometPos()
+void drawFloats()
 {
-    float k = 1 - (float)(app.game.cometLeft / app.game.cometTotalTime);
-    return GetSplinePointBezierQuad(app.cometFrom, app.cometCtrl, app.cometTo, k);
-}
-
-void drawComet()
-{
-    if (app.game.cometLeft <= 0) return;
-    Vector2 p = cometPos();
-    float pulse = 0.8f + 0.2f * std::sin(app.t * 12);
-    BeginBlendMode(BLEND_ADDITIVE);
-    DrawCircleGradient((int)p.x, (int)p.y, 46 * pulse, Fade(kGold, 0.5f), {0, 0, 0, 0});
-    DrawCircleV(p, 9, {255, 250, 220, 255});
-    EndBlendMode();
-    if (GetRandomValue(0, 1)) app.parts.push_back({p, {frand(-30, 30), frand(-30, 30)}, 1.2f, 1.2f, frand(2, 5), kGold, false});
-    if (std::fmod(app.t, 0.6f) < 0.4f) text("КЛИКНИ!", p.x, p.y - 44, 16, kGold, CENTER, true);
-}
-
-// ---------- интерфейс ----------
-
-bool hover(Rectangle r, Vector2 m) { return CheckCollisionPointRec(m, r); }
-
-void panel(Rectangle r, Color edge = kPanelEdge)
-{
-    DrawRectangleRounded(r, 0.06f, 8, kPanel);
-    DrawRectangleRoundedLinesEx(r, 0.06f, 8, 1.5f, edge);
-}
-
-Rectangle genCard(int i) { return {kLeftPanel.x + 8, kLeftPanel.y + 40 + i * (kCardH + kCardGap), kLeftPanel.width - 16, kCardH}; }
-
-int buyAmount(int i)
-{
-    const Game &g = app.game;
-    if (app.buyMode == 0) return 1;
-    if (app.buyMode == 1) return 10;
-    return std::max(1, g.genAffordable(i));
-}
-
-void drawTooltip(Vector2 m, const std::string &title, const std::string &body, const std::string &foot, Color tc)
-{
-    float w = std::max({measure(title, 19, true).x, measure(body, 16).x, measure(foot, 16, true).x}) + 28;
-    float h = foot.empty() ? 66 : 92;
-    float x = std::min(m.x + 18, VW - w - 8), y = std::min(m.y + 18, VH - h - 8);
-    DrawRectangleRounded({x, y, w, h}, 0.15f, 6, {12, 10, 30, 248});
-    DrawRectangleRoundedLinesEx({x, y, w, h}, 0.15f, 6, 1.5f, Fade(tc, 0.8f));
-    text(title, x + 14, y + 10, 19, tc, LEFT, true);
-    text(body, x + 14, y + 38, 16, kText);
-    if (!foot.empty()) text(foot, x + 14, y + 64, 16, kDim, LEFT, true);
-}
-
-struct Tip {
-    std::string title, body, foot;
-    Color col = kText;
-};
-
-void drawLeftPanel(Vector2 m, Tip &tip)
-{
-    Game &g = app.game;
-    panel(kLeftPanel);
-    text("ОБЪЕКТЫ", kLeftPanel.x + 14, kLeftPanel.y + 11, 19, kText, LEFT, true);
-    text("1–9, 0", kLeftPanel.x + 112, kLeftPanel.y + 14, 13, kDim);
-
-    // Переключатель количества покупки
-    static const char *modes[] = {"×1", "×10", "МАКС"};
-    bool bh = hover(kBuyModeButton, m);
-    DrawRectangleRounded(kBuyModeButton, 0.5f, 6, bh ? Color{70, 60, 130, 255} : Color{45, 38, 90, 255});
-    text(std::string("купить ") + modes[app.buyMode], kBuyModeButton.x + kBuyModeButton.width / 2, kBuyModeButton.y + 5, 14, kText, CENTER, true);
-    if (bh) tip = {"Сколько покупать за клик", "Переключает ×1 → ×10 → МАКС", "клавиша B", kText};
-
-    for (int i = 0; i < kGenCount; i++) {
-        Rectangle r = genCard(i);
-        r.x += std::sin(app.cardShake[i] * 60) * app.cardShake[i] * 20;
-        bool vis = g.genVisible(i);
-        int amount = buyAmount(i);
-        double cost = g.genCostN(i, amount);
-        bool can = vis && g.mass >= cost;
-        bool hov = vis && hover(r, m);
-        bool flare = g.flareGen == i && g.flareLeft > 0;
-        Color bg = can ? Color{40, 34, 80, 220} : Color{24, 22, 48, 200};
-        if (hov) bg = can ? Color{60, 50, 120, 240} : Color{34, 30, 64, 230};
-        DrawRectangleRounded(r, 0.2f, 6, bg);
-        if (app.cardFlash[i] > 0) DrawRectangleRounded(r, 0.2f, 6, Fade(kGood, app.cardFlash[i] * 0.5f));
-        Color edge = can ? Fade(kGood, 0.5f + 0.25f * std::sin(app.t * 4)) : Fade(kPanelEdge, 0.6f);
-        if (flare) edge = Fade(kAccent, 0.7f + 0.3f * std::sin(app.t * 8));
-        DrawRectangleRoundedLinesEx(r, 0.2f, 6, flare ? 2.5f : 1.2f, edge);
-
-        Vector2 ic = {r.x + 26, r.y + r.height / 2};
-        if (!vis) {
-            DrawCircleV(ic, 15, {40, 36, 70, 255});
-            text("?", ic.x, ic.y - 11, 20, kDim, CENTER, true);
-            text("???", r.x + 52, r.y + 8, 16, kDim, LEFT, true);
-            text("Поглоти больше массы", r.x + 52, r.y + 29, 13, Fade(kDim, 0.7f));
-            continue;
-        }
-        drawIconAt(i, ic, 14, app.t, hov ? app.t * 40 : 0);
-        text(kGens[i].name, r.x + 52, r.y + 6, 16, kText, LEFT, true);
-        text("+" + fmtNum(g.genIncome(i)) + "/с", r.x + 52, r.y + 29, 13, flare ? kAccent : Fade(kGood, 0.85f), LEFT, flare);
-        // Вехи: 10/25/50/100
-        int ml = g.milestoneLevel(i);
-        for (int k = 0; k < 4; k++) {
-            Vector2 pp = {r.x + 158 + k * 11.0f, r.y + 37};
-            DrawCircleV(pp, 3.5f, k < ml ? kGold : Fade(kDim, 0.35f));
-        }
-        if (flare) text("×5", r.x + 206, r.y + 28, 14, kAccent, LEFT, true);
-        text(std::to_string(g.gens[i]), r.x + r.width - 10, r.y + 4, 20, kText, RIGHT, true);
-        std::string cs = (amount > 1 ? "×" + std::to_string(amount) + " " : "") + fmtNum(cost);
-        text(cs, r.x + r.width - 10, r.y + 30, 14, can ? kGood : kBad, RIGHT, true);
-
-        if (hov) {
-            int next = ml < 4 ? kMilestones[ml] : 0;
-            std::string foot = next ? "Веха " + std::to_string(next) + " шт.: доход этого типа ×" +
-                                          std::string(g.hasNode(C_ATTRACTOR) ? "2" : "1.5")
-                                    : "Все вехи собраны!";
-            tip = {kGens[i].name, std::string(kGens[i].desc) + "  •  база +" + fmtNum(kGens[i].rate) + "/с за шт.", foot, kText};
-        }
+    for (auto &f : app.floats) {
+        float k = f.life / f.maxLife;
+        float s = f.size * (k > 0.85f ? 1 + (k - 0.85f) * 3 : 1);
+        textShadow(f.s, f.p.x, f.p.y, s, Fade(f.c, std::min(1.0f, k * 2)));
     }
-}
-
-int affordableNodes()
-{
-    int n = 0;
-    for (int i = 1; i < N_COUNT; i++)
-        if (app.game.canAffordNode((NodeId)i)) n++;
-    return n;
-}
-
-Vector2 achPos(int a) { return {kRightPanel.x + 32 + (a % 7) * 44.0f, kRightPanel.y + 330 + (a / 7) * 40.0f}; }
-
-void drawRightPanel(Vector2 m, Tip &tip)
-{
-    Game &g = app.game;
-    panel(kRightPanel);
-
-    // Кнопка дерева
-    int aff = affordableNodes();
-    bool hov = hover(kTreeButton, m);
-    DrawRectangleRounded(kTreeButton, 0.25f, 8, hov ? Color{90, 60, 170, 255} : Color{60, 40, 120, 255});
-    if (aff > 0) DrawRectangleRoundedLinesEx(kTreeButton, 0.25f, 8, 2.5f, Fade(kGood, 0.6f + 0.4f * std::sin(app.t * 5)));
-    else DrawRectangleRoundedLinesEx(kTreeButton, 0.25f, 8, 1.5f, Fade(kGravity, 0.8f));
-    text("ДЕРЕВО ПРОКАЧКИ", kTreeButton.x + kTreeButton.width / 2, kTreeButton.y + 7, 21, kText, CENTER, true);
-    text("узлов " + std::to_string(g.nodesOwned()) + "/" + std::to_string(N_COUNT - 1) + "   •   клавиша T",
-         kTreeButton.x + kTreeButton.width / 2, kTreeButton.y + 34, 13, kDim, CENTER);
-    if (aff > 0) {
-        Vector2 bp = {kTreeButton.x + kTreeButton.width - 6, kTreeButton.y + 6};
-        DrawCircleV(bp, 14 + 2 * std::sin(app.t * 6), kGood);
-        text(std::to_string(aff), bp.x, bp.y - 10, 18, {10, 30, 10, 255}, CENTER, true);
-    }
-
-    float x = kRightPanel.x + 18, y = kRightPanel.y + 84;
-    char buf[256];
-    text("СИЛА КЛИКА", x, y, 15, kDim, LEFT, true);
-    text("+" + fmtNum(g.baseClick() * g.comboMult()), kRightPanel.x + kRightPanel.width - 18, y - 3, 20, kText, RIGHT, true);
-    y += 24;
-    if (g.critChance() > 0) std::snprintf(buf, sizeof buf, "Крит: %.0f%% шанс, ×%.0f", g.critChance() * 100, g.critMult());
-    else std::snprintf(buf, sizeof buf, "Криты закрыты — ищи в дереве");
-    text(buf, x, y, 14, g.critChance() > 0 ? kText : kDim);
-    y += 22;
-    float cm = (float)g.comboMult(), cmax = (float)g.comboMax();
-    std::snprintf(buf, sizeof buf, "Комбо ×%.2f  (макс ×%.1f)", cm, cmax);
-    text(buf, x, y, 14, cm > 1.01f ? kAccent : kDim);
-    Rectangle bar = {x, y + 20, kRightPanel.width - 36, 8};
-    DrawRectangleRounded(bar, 1, 6, {30, 26, 60, 255});
-    float k = (cm - 1) / 2.5f;
-    if (k > 0) DrawRectangleRounded({bar.x, bar.y, bar.width * k, bar.height}, 1, 6, lerpColor(kAccent, kBad, k));
-    DrawRectangle((int)(bar.x + bar.width * (cmax - 1) / 2.5f) - 1, (int)bar.y - 3, 2, 14, Fade(kText, 0.6f));
-    y += 40;
-
-    // Тёмная материя
-    drawDarkIcon({x + 7, y + 9}, 8, kDark);
-    std::snprintf(buf, sizeof buf, "Тёмная материя: %.0f", g.dark);
-    text(buf, x + 22, y, 16, kDark, LEFT, true);
-    if (hover({x, y - 2, 290, 22}, m))
-        tip = {"Тёмная материя", "Кометы, достижения, ранги, соперники, метеоры, резонанс", "Тратится в ветке «Тёмная материя»", kDark};
-    y += 28;
-
-    // Активные эффекты
-    text("ЭФФЕКТЫ", x, y, 15, kDim, LEFT, true);
-    y += 22;
-    int shown = 0;
-    auto effect = [&](const std::string &s, Color c) {
-        if (shown >= 3) return;
-        text(s, x, y + shown * 20, 14, c, LEFT, true);
-        shown++;
-    };
-    if (g.frenzyLeft > 0) { std::snprintf(buf, sizeof buf, "БЕЗУМИЕ ×7  •  %.0f с", g.frenzyLeft); effect(buf, {255, 140, 230, 255}); }
-    if (g.flareLeft > 0 && g.flareGen >= 0) { std::snprintf(buf, sizeof buf, "Вспышка: %s ×5  •  %.0f с", kGens[g.flareGen].name, g.flareLeft); effect(buf, kAccent); }
-    if (g.abilityLeft[AB_WARP] > 0) { std::snprintf(buf, sizeof buf, "Время ×3  •  %.0f с", g.abilityLeft[AB_WARP]); effect(buf, kCosmos); }
-    if (g.abilityLeft[AB_RUSH] > 0) { std::snprintf(buf, sizeof buf, "Рывок: клики ×3  •  %.0f с", g.abilityLeft[AB_RUSH]); effect(buf, kGravity); }
-    if (g.rivalActive) effect("Соперник крадёт массу!", kRival);
-    if (g.meteorLeft > 0) effect("Метеоритный дождь!", {255, 160, 80, 255});
-    if (shown == 0) text("нет — лови кометы и события", x, y, 14, Fade(kDim, 0.7f));
-
-    // Достижения
-    y = kRightPanel.y + 300;
-    text("ДОСТИЖЕНИЯ", x, y - 4, 15, kDim, LEFT, true);
-    std::snprintf(buf, sizeof buf, "%d/%d  •  +%d%% дохода", g.achCount(), ACH_COUNT, g.achCount() * 2);
-    text(buf, kRightPanel.x + kRightPanel.width - 18, y - 3, 13, kDim, RIGHT);
-    for (int a = 0; a < ACH_COUNT; a++) {
-        Vector2 p = achPos(a);
-        bool has = g.hasAch(a);
-        if (has) {
-            DrawCircleGradient((int)p.x, (int)p.y, 19, Fade(kGold, 0.3f), {0, 0, 0, 0});
-            DrawCircleV(p, 14, {90, 70, 20, 255});
-            DrawRing(p, 12, 15, 0, 360, 24, kGold);
-            DrawPoly(p, 5, 6.5f, -90 + app.t * 20, kGold);
-        } else {
-            DrawCircleV(p, 14, {28, 26, 50, 255});
-            DrawRing(p, 13, 14.5f, 0, 360, 24, Fade(kDim, 0.4f));
-            text("?", p.x, p.y - 9, 16, Fade(kDim, 0.6f), CENTER, true);
-        }
-        if (CheckCollisionPointCircle(m, p, 15)) tip = {kAchs[a].name, kAchs[a].desc, has ? "✓ Получено" : "", has ? kGold : kDim};
-    }
-
-    // Цель
-    y = kRightPanel.y + 452;
-    text("ПОГЛОЩЕНИЕ ВСЕЛЕННОЙ", x, y, 15, kDim, LEFT, true);
-    double prog = g.mass / kGoal;
-    double logProg = std::clamp(std::log10(g.mass + 1) / std::log10(kGoal), 0.0, 1.0);
-    bar = {x, y + 24, kRightPanel.width - 36, 18};
-    DrawRectangleRounded(bar, 1, 8, {30, 26, 60, 255});
-    if (logProg > 0.01) DrawRectangleRounded({bar.x, bar.y, (float)(bar.width * logProg), bar.height}, 1, 8, lerpColor(kGravity, kBad, (float)logProg));
-    text(fmtNum(g.mass) + " / " + fmtNum(kGoal), bar.x + bar.width / 2, bar.y + 1, 15, kText, CENTER, true);
-    text(prog >= 1 ? "Готово! Поглощай!" : "шкала по порядкам величины", x, y + 48, 13, prog >= 1 ? kGood : Fade(kDim, 0.7f));
-    int sec = (int)g.time;
-    std::snprintf(buf, sizeof buf, "%02d:%02d", sec / 60, sec % 60);
-    text(buf, kRightPanel.x + kRightPanel.width - 18, y + 48, 14, kDim, RIGHT, true);
-
-    y = kRightPanel.y + kRightPanel.height - 60;
-    Color hc = Fade(kDim, 0.8f);
-    text("Пробел — клик   B — сколько покупать", x, y, 13, hc);
-    text("Q W E — способности   T — дерево", x, y + 18, 13, hc);
-    text(std::string("M — звук: ") + (app.audio.muted() ? "выкл" : "вкл") + "   F — полный экран", x, y + 36, 13, hc);
-}
-
-Rectangle abilityRect(int a) { return {640 - 165 + a * 112.0f, 640, 104, 56}; }
-
-void drawAbilities(Vector2 m, Tip &tip)
-{
-    Game &g = app.game;
-    static const char *keys[] = {"Q", "W", "E"};
-    static const Color cols[] = {kCosmos, kGravity, kGold};
-    for (int a = 0; a < AB_COUNT; a++) {
-        Rectangle r = abilityRect(a);
-        bool un = g.abilityUnlocked((Ability)a);
-        bool hov = hover(r, m);
-        Color c = cols[a];
-        DrawRectangleRounded(r, 0.3f, 8, un ? Color{30, 26, 64, 235} : Color{18, 16, 36, 220});
-        if (!un) {
-            DrawRectangleRoundedLinesEx(r, 0.3f, 8, 1.2f, Fade(kDim, 0.3f));
-            text(keys[a], r.x + 14, r.y + 6, 18, Fade(kDim, 0.5f), LEFT, true);
-            text("?", r.x + r.width / 2 + 10, r.y + 14, 24, Fade(kDim, 0.5f), CENTER, true);
-            if (hov) tip = {kAbilities[a].name, kAbilities[a].desc, "Открой в ветке «Тёмная материя»", kDim};
-            continue;
-        }
-        double cd = g.abilityCd[a], full = g.abilityCooldown((Ability)a);
-        bool ready = cd <= 0;
-        if (g.abilityLeft[a] > 0) {
-            float k = (float)(g.abilityLeft[a] / kAbilities[a].duration);
-            DrawRectangleRounded({r.x, r.y, r.width * k, r.height}, 0.3f, 8, Fade(c, 0.35f));
-        } else if (!ready) {
-            float k = (float)(cd / full);
-            DrawRectangleRounded({r.x, r.y, r.width * k, r.height}, 0.3f, 8, Fade(BLACK, 0.45f));
-        }
-        if (app.abilityFlash[a] > 0) DrawRectangleRounded(r, 0.3f, 8, Fade(WHITE, app.abilityFlash[a] * 0.5f));
-        DrawRectangleRoundedLinesEx(r, 0.3f, 8, ready ? 2.2f : 1.2f, ready ? Fade(c, 0.7f + 0.3f * std::sin(app.t * 4)) : Fade(c, 0.4f));
-        text(keys[a], r.x + 12, r.y + 5, 18, ready ? c : Fade(c, 0.5f), LEFT, true);
-        // Иконка
-        Vector2 ic = {r.x + r.width - 24, r.y + 20};
-        if (a == AB_WARP) { DrawRing(ic, 7, 10, app.t * 300, app.t * 300 + 270, 16, c); DrawCircleV(ic, 3, c); }
-        if (a == AB_RUSH) { DrawTriangle({ic.x - 8, ic.y - 9}, {ic.x - 8, ic.y + 9}, {ic.x + 9, ic.y}, c); }
-        if (a == AB_PORTAL) { DrawCircleV(ic, 9, WHITE); DrawRing(ic, 9, 12, 0, 360, 24, c); }
-        std::string st = g.abilityLeft[a] > 0 ? "АКТИВНО" : ready ? "готово" : std::to_string((int)std::ceil(cd)) + " с";
-        text(st, r.x + r.width / 2, r.y + 34, 14, ready || g.abilityLeft[a] > 0 ? kText : kDim, CENTER, true);
-        if (hov) {
-            char buf[128];
-            std::snprintf(buf, sizeof buf, "Перезарядка %.0f с  •  клавиша %s", full, keys[a]);
-            tip = {kAbilities[a].name, kAbilities[a].desc, buf, c};
-        }
-    }
-}
-
-void drawTop()
-{
-    Game &g = app.game;
-    textGlow(fmtNum(g.mass), 640, 12, 54, kText, CENTER, kGravity);
-    text("массы   •   +" + fmtNum(g.income()) + " в секунду", 640, 70, 18, kDim, CENTER);
-    Color rc = lerpColor(kAccent, kGold, 0.5f + 0.5f * std::sin(app.t * 2));
-    text(g.rankName(), 640, 96, 17, rc, CENTER, true);
-    if (g.combo >= 3) {
-        char buf[128];
-        std::snprintf(buf, sizeof buf, "КОМБО ×%.2f", g.comboMult());
-        float s = 20 + 6 * (float)((g.comboMult() - 1) / 2.5);
-        textGlow(buf, 640, 122, s, kAccent, CENTER, kBad);
-    }
-}
-
-void drawBottom(Vector2 m)
-{
-    Game &g = app.game;
-    if (g.mass >= kGoal) {
-        bool hov = hover(kCollapseButton, m);
-        float p = 0.5f + 0.5f * std::sin(app.t * 5);
-        DrawRectangleRounded(kCollapseButton, 0.4f, 10, lerpColor({120, 20, 60, 255}, {200, 40, 90, 255}, hov ? 1 : p));
-        DrawRectangleRoundedLinesEx(kCollapseButton, 0.4f, 10, 3, Fade(kGold, 0.6f + 0.4f * p));
-        text("ПОГЛОТИТЬ ВСЕЛЕННУЮ", 640, kCollapseButton.y + 8, 24, kText, CENTER, true);
-        text("клик или Enter", 640, kCollapseButton.y + 36, 14, Fade(kText, 0.8f), CENTER);
-        return;
-    }
-    std::string hint;
-    if (g.clicks < 5) hint = "Кликай по чёрной дыре, чтобы затягивать материю";
-    else if (g.gens[0] == 0) hint = "Купи космическую пыль на панели слева — она даёт массу сама";
-    else if (g.nodesOwned() == 0 && affordableNodes() > 0) hint = "Открой ДЕРЕВО ПРОКАЧКИ справа (или нажми T)";
-    else if (g.rivalActive) hint = "Соперник крадёт массу! Кликай по нему, пока не сбежал";
-    else if (g.cometLeft > 0) hint = "Комета! Кликни по ней, пока не улетела";
-    else if (g.meteorLeft > 0) hint = "Метеоритный дождь — лови метеоры кликами";
-    else if (g.dark >= 3 && !g.hasNode(D_WARP)) hint = "Хватает тёмной материи на способность — загляни в дерево";
-    else if (g.hasNode(G_RESONANCE) && g.perfects < 5) hint = "Кликай, когда кольцо вокруг дыры станет золотым";
-    else if (g.hasNode(C_INTERCEPT) && g.intercepts < 3) hint = "Кликай по падающим объектам — перехват даёт бонус";
-    if (!hint.empty()) text(hint, 640, 612, 16, Fade(kText, 0.6f + 0.3f * std::sin(app.t * 3)), CENTER);
-}
-
-void drawToasts()
-{
-    if (app.toasts.empty()) return;
-    Toast &ts = app.toasts.front();
-    float in = std::min(1.0f, ts.t * 4), out = std::min(1.0f, (3.2f - ts.t) * 3);
-    float k = Clamp(std::min(in, out), 0, 1);
-    float x = kLeftPanel.x - (1 - in) * 360;
-    Rectangle r = {x, 14, kLeftPanel.width, 72};
-    DrawRectangleRounded(r, 0.25f, 8, Fade(lerpColor({20, 16, 30, 255}, ts.col, 0.18f), 0.95f * k));
-    DrawRectangleRoundedLinesEx(r, 0.25f, 8, 2, Fade(ts.col, k));
-    DrawPoly({r.x + 34, r.y + 36}, 5, 16, -90 + app.t * 60, Fade(ts.col, k));
-    text(ts.title, r.x + 62, r.y + 8, 14, Fade(ts.col, k), LEFT, true);
-    text(ts.name, r.x + 62, r.y + 25, 19, Fade(kText, k), LEFT, true);
-    text(ts.sub, r.x + 62, r.y + 48, 13, Fade(kDim, k));
-    if (app.toasts.size() > 1) text("+" + std::to_string(app.toasts.size() - 1), r.x + r.width - 12, r.y + 8, 14, Fade(ts.col, k), RIGHT, true);
 }
 
 void drawBanner()
 {
     if (app.bannerT <= 0) return;
-    float k = Clamp(std::min(app.bannerT, 3.5f - app.bannerT) * 3, 0, 1);
-    float s = 1 + 0.15f * (1 - k);
-    textGlow(app.bannerTitle, 640, 160, 21 * s, Fade(app.bannerColor, k), CENTER, Fade(kAccent, k));
-    textGlow(app.bannerText, 640, 186, 32 * s, Fade(kText, k), CENTER, Fade(app.bannerColor, k));
+    float k = Clamp(std::min(app.bannerT, 3.0f - app.bannerT) * 3, 0, 1);
+    textGlow(app.bannerTitle, 640, 96, 20, Fade(app.bannerColor, k), CENTER, Fade(kAccent, k));
+    textGlow(app.bannerText, 640, 120, 30, Fade(kText, k), CENTER, Fade(app.bannerColor, k));
 }
 
-// ---------- дерево прокачки ----------
+// ---------- заход ----------
 
-float branchX(Branch b)
-{
-    switch (b) {
-    case Branch::Gravity: return 170;
-    case Branch::Accretion: return 485;
-    case Branch::Cosmos: return 795;
-    case Branch::Dark: return 1110;
-    default: return 640;
-    }
-}
+float screenR() { return app.game.R * app.zoom; }
 
-Vector2 nodePos(int i)
-{
-    const NodeDef &n = kNodes[i];
-    if (n.branch == Branch::Root) return {640, 676};
-    return {branchX(n.branch) + n.col * 80.0f, 676 - n.row * 96.0f};
-}
-
-void drawNodeIcon(Branch b, Vector2 p, float r, Color c, float t)
-{
-    switch (b) {
-    case Branch::Gravity:
-        DrawRing(p, r * 0.25f, r * 0.38f, 0, 360, 24, c);
-        DrawRing(p, r * 0.55f, r * 0.62f, t * 90, t * 90 + 270, 24, c);
-        break;
-    case Branch::Accretion:
-        DrawCircleV(p, r * 0.25f, c);
-        rlPushMatrix();
-        rlTranslatef(p.x, p.y, 0);
-        rlRotatef(-20, 0, 0, 1);
-        DrawEllipseLines(0, 0, r * 0.7f, r * 0.25f, c);
-        DrawEllipseLines(0, 0, r * 0.62f, r * 0.2f, c);
-        rlPopMatrix();
-        break;
-    case Branch::Cosmos:
-        DrawPoly(p, 4, r * 0.5f, t * 30, c);
-        DrawPoly(p, 4, r * 0.32f, t * 30 + 45, c);
-        break;
-    case Branch::Dark:
-        DrawPoly(p, 4, r * 0.55f, 0, c);
-        DrawPolyLines(p, 4, r * 0.75f, t * 40, c);
-        break;
-    case Branch::Root:
-        DrawCircleV(p, r * 0.45f, BLACK);
-        DrawRing(p, r * 0.45f, r * 0.55f, 0, 360, 24, kAccent);
-        break;
-    }
-}
-
-std::string nodeCostStr(int i)
-{
-    return kNodes[i].branch == Branch::Dark ? "◆ " + fmtNum(kNodes[i].cost) : fmtNum(kNodes[i].cost);
-}
-
-int drawTree(Vector2 m, bool clicked)
+void drawRunWorld()
 {
     Game &g = app.game;
-    DrawRectangle(0, 0, (int)VW, (int)VH, {6, 4, 18, 244});
-    textGlow("ДЕРЕВО ПРОКАЧКИ", 640, 14, 32, kText, CENTER, kGravity);
-    char buf[256];
-    if (g.cometLeft > 0 && std::fmod(app.t, 0.8f) < 0.5f)
-        text("★ Пролетает комета! Закрой дерево (T), чтобы поймать", 640, 54, 16, kGold, CENTER, true);
-    else if (g.rivalActive && std::fmod(app.t, 0.8f) < 0.5f)
-        text("Соперник крадёт массу! Закрой дерево (T)", 640, 54, 16, kRival, CENTER, true);
-    else {
-        std::snprintf(buf, sizeof buf, "Масса: %s   •   ◆ Тёмная материя: %.0f   •   T или Esc — закрыть", fmtNum(g.mass).c_str(), g.dark);
-        text(buf, 640, 54, 16, kDim, CENTER);
-    }
-    text("ГРАВИТАЦИЯ • клик", branchX(Branch::Gravity), 84, 15, kGravity, CENTER, true);
-    text("АККРЕЦИЯ • доход", branchX(Branch::Accretion), 84, 15, kAccretion, CENTER, true);
-    text("КОСМОС • события", branchX(Branch::Cosmos), 84, 15, kCosmos, CENTER, true);
-    text("ТЁМНАЯ МАТЕРИЯ • способности", branchX(Branch::Dark), 84, 15, kDark, CENTER, true);
+    Vector2 hs = toScreen(g.pos);
+    float Rs = screenR();
+    drawBackground(hs, Rs, true);
 
-    for (int i = 1; i < N_COUNT; i++) {
-        Vector2 a = nodePos(kNodes[i].parent), b = nodePos(i);
-        Color c = branchColor(kNodes[i].branch);
-        if (g.hasNode((NodeId)i)) {
-            DrawLineEx(a, b, 4, Fade(c, 0.9f));
-            float k = std::fmod(app.t * 0.7f + i * 0.13f, 1.0f);
-            BeginBlendMode(BLEND_ADDITIVE);
-            DrawCircleV(Vector2Lerp(a, b, k), 3.5f, WHITE);
-            EndBlendMode();
-        } else if (g.nodeAvailable((NodeId)i)) {
-            for (int s = 0; s < 14; s += 2)
-                DrawLineEx(Vector2Lerp(a, b, s / 14.0f), Vector2Lerp(a, b, (s + 1) / 14.0f), 2.5f, Fade(c, 0.6f));
-        } else {
-            DrawLineEx(a, b, 1.5f, Fade(c, 0.15f));
+    // радиус притяжения
+    float pullRs = g.R * 2.4f * (float)g.stats().pull * app.zoom;
+    for (int k = 0; k < 48; k++) {
+        float a0 = k * 7.5f + app.t * 6;
+        DrawRing(hs, pullRs - 1, pullRs, a0, a0 + 3.5f, 2, Fade(kDim, 0.18f));
+    }
+    if (g.collapseLeft > 0) DrawCircleGradient((int)hs.x, (int)hs.y, 900, Fade({150, 125, 255, 255}, 0.18f), {0, 0, 0, 0});
+
+    for (auto &o : g.objs) drawObj(o);
+
+    float heat = Clamp(std::log10(g.R + 1) / 3.0f, 0, 1);
+    drawHoleAt(hs, Rs, heat, g.dashLeft > 0 ? 1.0f : 0.0f);
+
+    // спутники
+    const Stats &st = g.stats();
+    for (int s = 0; s < st.sats; s++) {
+        float a = g.satAngle + s * 2 * PI / st.sats;
+        Vector2 p = {hs.x + std::cos(a) * Rs * 2.0f, hs.y + std::sin(a) * Rs * 2.0f};
+        float r = Rs * 0.22f * (float)st.satSize;
+        DrawCircleV(p, r, BLACK);
+        DrawRing(p, r, r * 1.25f, 0, 360, 24, Fade(kAccent, 0.9f));
+    }
+    drawEffects();
+}
+
+void drawCoreArrow()
+{
+    Game &g = app.game;
+    for (auto &o : g.objs) {
+        if (o.kind != K_TIER || o.tier != 10) continue;
+        Vector2 sp = toScreen(o.p);
+        bool on = sp.x > 0 && sp.x < VW && sp.y > 0 && sp.y < VH;
+        bool edible = g.canEat(o);
+        Color c = edible ? kGood : kGold;
+        if (!on) {
+            Vector2 d = Vector2Normalize(Vector2Subtract(sp, kScreenC));
+            float k = std::min((VW / 2 - 60) / std::max(0.01f, std::fabs(d.x)), (VH / 2 - 60) / std::max(0.01f, std::fabs(d.y)));
+            Vector2 p = Vector2Add(kScreenC, Vector2Scale(d, k));
+            Vector2 n = {-d.y, d.x};
+            Vector2 tip = Vector2Add(p, Vector2Scale(d, 22));
+            DrawTriangle(Vector2Add(p, Vector2Scale(n, 12)), Vector2Subtract(p, Vector2Scale(n, 12)), tip, c);
+            DrawTriangle(Vector2Subtract(p, Vector2Scale(n, 12)), Vector2Add(p, Vector2Scale(n, 12)), tip, c);
+            textShadow("ЯДРО ВСЕЛЕННОЙ", p.x - d.x * 40, p.y - d.y * 40 - 10, 14, c);
+        }
+        if (!edible) {
+            char buf[96];
+            std::snprintf(buf, sizeof buf, "Ядро: нужен размер %.0f (сейчас %.0f)", o.size / g.stats().eat, g.R);
+            textShadow(buf, 640, 682, 15, kGold);
         }
     }
+}
 
-    int hovered = -1;
-    for (int i = 0; i < N_COUNT; i++) {
-        NodeId id = (NodeId)i;
-        Vector2 p = nodePos(i);
-        Color c = branchColor(kNodes[i].branch);
-        bool owned = g.hasNode(id), avail = g.nodeAvailable(id), can = g.canAffordNode(id);
-        float r = i == 0 ? 30 : 23;
-        bool hov = CheckCollisionPointCircle(m, p, r + 4);
-        if (hov) { hovered = i; r += 3; }
-        if (owned) {
-            BeginBlendMode(BLEND_ADDITIVE);
-            DrawCircleGradient((int)p.x, (int)p.y, r * 2, Fade(c, 0.35f), {0, 0, 0, 0});
-            EndBlendMode();
-            DrawCircleV(p, r, lerpColor(c, {20, 15, 40, 255}, 0.55f));
-            DrawRing(p, r - 3, r, 0, 360, 36, c);
-            drawNodeIcon(kNodes[i].branch, p, r, WHITE, app.t);
-        } else if (avail) {
-            DrawCircleV(p, r, {24, 20, 50, 255});
-            float pr = can ? 0.6f + 0.4f * std::sin(app.t * 5) : 0.5f;
-            DrawRing(p, r - 2.5f, r, 0, 360, 36, Fade(can ? kGood : c, pr));
-            drawNodeIcon(kNodes[i].branch, p, r, Fade(c, 0.85f), app.t);
-            text(nodeCostStr(i), p.x, p.y + r + 3, 13, can ? kGood : kBad, CENTER, true);
-        } else {
-            DrawCircleV(p, r, {16, 14, 32, 255});
-            DrawRing(p, r - 1.5f, r, 0, 360, 36, Fade(c, 0.25f));
-            drawNodeIcon(kNodes[i].branch, p, r, Fade(c, 0.2f), 0);
+void drawRunHud()
+{
+    Game &g = app.game;
+    const Stats &st = g.stats();
+    // таймер испарения
+    float maxT = (float)std::max(st.time * 2, g.timeLeft);
+    float k = (float)(g.timeLeft / st.time);
+    Rectangle bar = {380, 16, 520, 18};
+    DrawRectangleRounded(bar, 1, 8, {20, 18, 44, 220});
+    Color tc = g.timeLeft < 5 ? lerpColor(kBad, WHITE, 0.5f + 0.5f * std::sin(app.t * 14)) : lerpColor(kBad, kTimeC, Clamp(k * 2, 0, 1));
+    float w = bar.width * Clamp((float)g.timeLeft / maxT * 2, 0, 1);
+    if (w > 2) DrawRectangleRounded({bar.x, bar.y, w, bar.height}, 1, 8, tc);
+    char buf[128];
+    std::snprintf(buf, sizeof buf, "%.1f с до испарения", std::max(0.0, g.timeLeft));
+    textShadow(buf, 640, bar.y + 22, 16, tc);
+    if (g.hurtFlash > 0) DrawRectangleRoundedLinesEx(bar, 1, 8, 3, Fade(kBad, (float)g.hurtFlash));
+
+    // масса
+    DrawRectangleGradientH(0, 0, 360, 100, Fade(kBg, 0.85f), {0, 0, 0, 0});
+    textGlow("+" + fmtNum(g.runMass), 24, 14, 34, kText, LEFT, {150, 125, 255, 255});
+    text("за заход  •  всего " + fmtNum(g.mass), 26, 54, 15, kDim);
+    std::snprintf(buf, sizeof buf, "Размер %.0f  •  рекорд %.0f", g.R, g.bestR);
+    text(buf, 26, 74, 15, kDim);
+
+    // тёмная материя
+    DrawPoly({VW - 34, 30}, 4, 10, app.t * 40, kDarkC);
+    text(fmtNum(g.dark), VW - 52, 19, 22, kDarkC, RIGHT, true);
+    std::snprintf(buf, sizeof buf, "заход %d", g.runs);
+    text(buf, VW - 24, 48, 14, kDim, RIGHT);
+
+    // комбо
+    if (g.combo >= 3) {
+        double cm = std::min(st.comboMax, 1.0 + g.combo * 0.03);
+        std::snprintf(buf, sizeof buf, "ПИР ×%.2f", cm);
+        Vector2 hs = toScreen(g.pos);
+        textGlow(buf, hs.x, hs.y + screenR() * 1.3f + 18, 18 + 6 * (float)((cm - 1) / 3), kAccent, CENTER, kBad);
+    }
+
+    // способности
+    float x = 640 - (st.dash && st.collapse ? 110 : 52);
+    auto ability = [&](const char *key, const char *name, double cd, double full, Color c, double active) {
+        Rectangle r = {x, 638, 104, 54};
+        DrawRectangleRounded(r, 0.3f, 8, {24, 20, 52, 220});
+        if (active > 0) DrawRectangleRounded(r, 0.3f, 8, Fade(c, 0.35f));
+        else if (cd > 0) DrawRectangleRounded({r.x, r.y, r.width * (float)(cd / full), r.height}, 0.3f, 8, Fade(BLACK, 0.5f));
+        DrawRectangleRoundedLinesEx(r, 0.3f, 8, cd <= 0 ? 2 : 1, Fade(c, cd <= 0 ? 0.9f : 0.4f));
+        text(key, r.x + 52, r.y + 5, 13, Fade(c, 0.9f), CENTER, true);
+        text(cd > 0 ? std::to_string((int)std::ceil(cd)) + " с" : name, r.x + 52, r.y + 25, 16, cd > 0 ? kDim : kText, CENTER, true);
+        x += 116;
+    };
+    if (st.dash) ability("ПРОБЕЛ / ПКМ", "Рывок", g.dashCd, st.dashCd, {150, 125, 255, 255}, g.dashLeft);
+    if (st.collapse) ability("Q", "Коллапс", g.collapseCd, st.collapseCd, kAccent, g.collapseLeft);
+
+    drawCoreArrow();
+
+    if (g.runs == 1 && g.runTime < 9)
+        textShadow("Веди дыру мышкой и поглощай всё, что меньше тебя", 640, 600, 19, Fade(kText, 0.9f));
+    else if (g.runs == 1 && g.runTime < 15)
+        textShadow("Красная обводка — пока не по зубам. Подрасти!", 640, 600, 19, Fade(kText, 0.9f));
+    else if (g.runs == 3 && g.runTime < 6)
+        textShadow("Осторожно: антиматерия и крупные дыры-соперники отнимают время", 640, 600, 17, kBad);
+
+    if (app.hurtVignette > 0) {
+        DrawRectangleGradientV(0, 0, (int)VW, 120, Fade(kBad, app.hurtVignette * 0.4f), {0, 0, 0, 0});
+        DrawRectangleGradientV(0, (int)VH - 120, (int)VW, 120, {0, 0, 0, 0}, Fade(kBad, app.hurtVignette * 0.4f));
+    }
+}
+
+void drawRunEnd()
+{
+    Game &g = app.game;
+    float k = Clamp(app.runEndT * 3, 0, 1);
+    DrawRectangle(0, 0, (int)VW, (int)VH, Fade(BLACK, 0.55f * k));
+    Rectangle r = {390, 140 + (1 - k) * 40, 500, 420};
+    DrawRectangleRounded(r, 0.08f, 8, Fade({14, 12, 32, 255}, 0.95f * k));
+    DrawRectangleRoundedLinesEx(r, 0.08f, 8, 2, Fade(kTimeC, k));
+    textGlow("ДЫРА ИСПАРИЛАСЬ", 640, r.y + 22, 32, Fade(kText, k), CENTER, Fade(kTimeC, k));
+    text("Излучение Хокинга забрало остатки. Но масса — твоя.", 640, r.y + 66, 15, Fade(kDim, k), CENTER);
+    textGlow("+" + fmtNum(g.runMass), 640, r.y + 96, 46, Fade(kGold, k), CENTER, Fade(kAccent, k));
+    float y = r.y + 168;
+    auto row = [&](const std::string &a, const std::string &b, Color c = kText) {
+        text(a, r.x + 50, y, 17, Fade(kText, k));
+        text(b, r.x + r.width - 50, y, 17, Fade(c, k), RIGHT, true);
+        y += 28;
+    };
+    row("Поглощено объектов", std::to_string(g.runEaten));
+    row("Крупнейшая добыча", g.biggestTier >= 0 ? kTiers[g.biggestTier].name : "—");
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%.0f", g.bestR);
+    row("Рекорд размера", buf, g.bestR > app.runStartBest ? kGood : kText);
+    if (app.lastInterest > 0) row("Сложный процент", "+" + fmtNum(app.lastInterest), kGold);
+    row("Всего массы", fmtNum(g.mass));
+    int aff = g.affordableCount();
+    if (aff > 0) {
+        std::snprintf(buf, sizeof buf, "Можно купить улучшений: %d", aff);
+        text(buf, 640, r.y + r.height - 72, 17, Fade(kGood, k), CENTER, true);
+    }
+    if (std::fmod(app.t, 1.0f) < 0.7f) text("Клик или Пробел — в созвездие прокачки", 640, r.y + r.height - 42, 17, Fade(kText, k), CENTER, true);
+}
+
+// ---------- созвездие прокачки ----------
+
+Vector2 nodeWorld(int i)
+{
+    const NodeDef &n = kNodes[i];
+    if (i == 0) return {0, 0};
+    float a = (branchAngle(n.branch) + n.offset) * DEG2RAD;
+    return {std::cos(a) * n.ring * kRingStep, std::sin(a) * n.ring * kRingStep};
+}
+
+Vector2 treeToScreen(Vector2 w) { return {(w.x - app.treeCam.x) * app.treeZoom + kScreenC.x, (w.y - app.treeCam.y) * app.treeZoom + kScreenC.y}; }
+
+void drawStatIcon(Stat s, Vector2 p, float r, Color c)
+{
+    float t = app.t;
+    switch (s) {
+    case ST_SIZE: case ST_GROWTH:
+        DrawCircleV(p, r * (s == ST_SIZE ? 0.42f : 0.25f), BLACK);
+        DrawRing(p, r * (s == ST_SIZE ? 0.42f : 0.25f), r * (s == ST_SIZE ? 0.52f : 0.33f), 0, 360, 24, c);
+        if (s == ST_GROWTH)
+            for (int k = 0; k < 4; k++) {
+                float a = k * PI / 2 + PI / 4;
+                Vector2 o = {p.x + std::cos(a) * r * 0.62f, p.y + std::sin(a) * r * 0.62f};
+                DrawLineEx(Vector2Lerp(p, o, 0.6f), o, 2, c);
+            }
+        break;
+    case ST_SPEED: case ST_DASH: case ST_DASHCD: case ST_PHANTOM:
+        for (int k = 0; k < 2; k++) {
+            float ox = (k - 0.5f) * r * 0.4f;
+            DrawTriangle({p.x + ox - r * 0.25f, p.y - r * 0.4f}, {p.x + ox - r * 0.25f, p.y + r * 0.4f}, {p.x + ox + r * 0.3f, p.y}, c);
         }
+        break;
+    case ST_PULL: case ST_PULLSTR: case ST_COLLAPSE: case ST_COLLAPSEPOW:
+        for (int k = 0; k < 3; k++) DrawRing(p, r * (0.18f + k * 0.18f), r * (0.24f + k * 0.18f), t * 60 * (k + 1), t * 60 * (k + 1) + 260, 24, c);
+        break;
+    case ST_EAT: case ST_ANTIEAT:
+        DrawCircleSector(p, r * 0.55f, 30, 330, 24, c);
+        DrawCircleV({p.x + r * 0.12f, p.y - r * 0.22f}, r * 0.08f, BLACK);
+        break;
+    case ST_TIME: case ST_CLOCK: case ST_CLOCKVAL: case ST_TIMEFEED: case ST_LOOP:
+        DrawRing(p, r * 0.45f, r * 0.55f, 0, 360, 24, c);
+        DrawLineEx(p, {p.x, p.y - r * 0.38f}, 2, c);
+        DrawLineEx(p, {p.x + r * 0.28f, p.y}, 2, c);
+        break;
+    case ST_ARMOR:
+        DrawPoly(p, 6, r * 0.5f, 30, c);
+        DrawPoly(p, 6, r * 0.3f, 30, BLACK);
+        break;
+    case ST_VALUE: case ST_VALUEX: case ST_TIERVAL: case ST_INTEREST:
+        DrawPoly(p, 4, r * 0.5f, 45, c);
+        DrawPoly(p, 4, r * 0.25f, 45, Fade(WHITE, 0.6f));
+        break;
+    case ST_CRIT: case ST_CRITMULT: case ST_COMBO: case ST_COMBOWIN:
+        for (int k = 0; k < 5; k++) {
+            float a = k * 2 * PI / 5 - PI / 2;
+            DrawLineEx(p, {p.x + std::cos(a) * r * 0.55f, p.y + std::sin(a) * r * 0.55f}, 3, c);
+        }
+        break;
+    case ST_DENSITY: case ST_RICH: case ST_SWARM:
+        for (int k = 0; k < 5; k++) DrawCircleV({p.x + std::cos(k * 1.3f) * r * 0.35f, p.y + std::sin(k * 1.3f) * r * 0.35f}, r * 0.12f, c);
+        break;
+    case ST_GOLD: case ST_CHAIN: case ST_MAGNET: case ST_RIVAL:
+        DrawPoly(p, 4, r * 0.55f, t * 30, c);
+        DrawPoly(p, 4, r * 0.32f, t * 30 + 45, Fade(WHITE, 0.7f));
+        break;
+    case ST_SAT:
+        DrawCircleV(p, r * 0.22f, BLACK);
+        DrawRing(p, r * 0.22f, r * 0.3f, 0, 360, 16, c);
+        DrawCircleV({p.x + std::cos(t * 2) * r * 0.5f, p.y + std::sin(t * 2) * r * 0.5f}, r * 0.11f, c);
+        break;
+    case ST_SATSIZE:
+        DrawCircleV({p.x + std::cos(t * 2) * r * 0.42f, p.y + std::sin(t * 2) * r * 0.42f}, r * 0.2f, c);
+        break;
+    case ST_DARK:
+        DrawPoly(p, 4, r * 0.5f, 0, c);
+        break;
+    case ST_FINAL:
+        drawTierIcon(10, r * 0.5f, t, 1);
+        break;
+    }
+}
+
+std::string costStr(int i)
+{
+    return (kNodes[i].branch == Branch::Dark ? "◆ " : "") + fmtNum(app.game.nodeCost(i));
+}
+
+void drawTree(Vector2 m, int &hovered)
+{
+    Game &g = app.game;
+    drawBackground({-1000, -1000}, 0, false);
+    hovered = -1;
+    if (app.nodeFlash.size() != kNodes.size()) app.nodeFlash.assign(kNodes.size(), 0);
+    float z = app.treeZoom;
+
+    // связи
+    for (size_t i = 1; i < kNodes.size(); i++) {
+        if (!g.nodeVisible((int)i)) continue;
+        Vector2 a = treeToScreen(nodeWorld(kNodes[i].parent)), b = treeToScreen(nodeWorld((int)i));
+        Color c = branchColor(kNodes[i].branch);
+        if (g.level((int)i) > 0) {
+            DrawLineEx(a, b, 3.5f * z, Fade(c, 0.85f));
+            float k = std::fmod(app.t * 0.6f + i * 0.17f, 1.0f);
+            BeginBlendMode(BLEND_ADDITIVE);
+            DrawCircleV(Vector2Lerp(a, b, k), 3 * z, WHITE);
+            EndBlendMode();
+        } else {
+            for (int s = 0; s < 12; s += 2) DrawLineEx(Vector2Lerp(a, b, s / 12.0f), Vector2Lerp(a, b, (s + 1) / 12.0f), 2 * z, Fade(c, 0.45f));
+        }
+    }
+    // подписи веток
+    for (Branch b : {Branch::Gravity, Branch::Growth, Branch::Time, Branch::Wealth, Branch::Cosmos, Branch::Dark}) {
+        float a = branchAngle(b) * DEG2RAD;
+        Vector2 p = treeToScreen({std::cos(a) * kRingStep * 0.55f, std::sin(a) * kRingStep * 0.55f});
+        Color c = branchColor(b);
+        Vector2 ms = measure(branchName(b), 13 * std::max(0.8f, z), true);
+        DrawRectangleRounded({p.x - ms.x / 2 - 8, p.y - ms.y / 2 - 3, ms.x + 16, ms.y + 6}, 0.6f, 6, Fade({10, 8, 24, 255}, 0.85f));
+        text(branchName(b), p.x, p.y - ms.y / 2, 13 * std::max(0.8f, z), c, CENTER, true);
+    }
+
+    for (size_t i = 0; i < kNodes.size(); i++) {
+        if (!g.nodeVisible((int)i)) continue;
+        const NodeDef &n = kNodes[i];
+        Vector2 p = treeToScreen(nodeWorld((int)i));
+        float r = (i == 0 ? 34 : 22) * z;
+        if (p.x < -r || p.x > VW + r || p.y < -r || p.y > VH + r) continue;
+        Color c = branchColor(n.branch);
+        int lv = g.level((int)i);
+        bool maxed = lv >= n.maxLevel, can = g.canBuy((int)i);
+        bool hov = CheckCollisionPointCircle(m, p, r + 3);
+        if (hov) hovered = (int)i;
+        if (i == 0) {
+            drawHoleAt(p, r * 0.7f, 0.3f, 0);
+            continue;
+        }
+        if (lv > 0) {
+            BeginBlendMode(BLEND_ADDITIVE);
+            DrawCircleGradient((int)p.x, (int)p.y, r * 2.1f, Fade(c, maxed ? 0.45f : 0.25f), {0, 0, 0, 0});
+            EndBlendMode();
+        }
+        DrawCircleV(p, r, lv > 0 ? lerpColor(c, {16, 12, 34, 255}, maxed ? 0.35f : 0.65f) : Color{20, 16, 42, 255});
+        // дуга уровня
+        DrawRing(p, r - 3 * z, r, 0, 360, 36, Fade(c, 0.25f));
+        if (lv > 0) DrawRing(p, r - 3 * z, r, -90, -90 + 360.0f * lv / n.maxLevel, 36, c);
+        if (can) DrawRing(p, r + 2 * z, r + 4.5f * z, 0, 360, 36, Fade(kGood, 0.55f + 0.45f * std::sin(app.t * 5)));
+        drawStatIcon(n.stat, p, r, lv > 0 ? WHITE : Fade(c, 0.85f));
         if (app.nodeFlash[i] > 0) {
             BeginBlendMode(BLEND_ADDITIVE);
             DrawCircleV(p, r * (1 + 1.5f * (1 - app.nodeFlash[i])), Fade(WHITE, app.nodeFlash[i] * 0.6f));
             EndBlendMode();
         }
-        if (owned || avail) {
-            auto lines = splitTwo(kNodes[i].name);
-            float ly = p.y - r - 4 - lines.size() * 15.0f;
-            for (auto &ln : lines) {
-                text(ln, p.x, ly, 13, owned ? Fade(kText, 0.85f) : kText, CENTER, true);
-                ly += 15;
-            }
+        if (n.maxLevel > 1 || lv == 0) {
+            std::string lt = maxed ? "МАКС" : std::to_string(lv) + "/" + std::to_string(n.maxLevel);
+            text(lt, p.x, p.y + r + 2, 11 * std::max(0.85f, z), maxed ? c : can ? kGood : kDim, CENTER, true);
         }
     }
 
-    if (hovered >= 0) {
+    // верхняя панель
+    DrawRectangle(0, 0, (int)VW, 64, Fade(kBg, 0.85f));
+    DrawLine(0, 64, (int)VW, 64, kPanelEdge);
+    textGlow(fmtNum(g.mass), 24, 10, 34, kText, LEFT, {150, 125, 255, 255});
+    text("массы", 28 + measure(fmtNum(g.mass), 34, true).x, 26, 15, kDim);
+    DrawPoly({330, 31}, 4, 10, app.t * 40, kDarkC);
+    text(fmtNum(g.dark) + " тёмной материи", 348, 21, 18, kDarkC, LEFT, true);
+    textGlow("СОЗВЕЗДИЕ ПРОКАЧКИ", 640 + 120, 8, 24, kText, CENTER, {150, 125, 255, 255});
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "заходов: %d   •   рекорд размера: %.0f   •   время: %s", g.runs, g.bestR, fmtTime(app.realTime).c_str());
+    text(buf, 640 + 120, 38, 14, kDim, CENTER);
+
+    // статы слева
+    const Stats &st = g.stats();
+    Rectangle pr = {14, 78, 236, 330};
+    DrawRectangleRounded(pr, 0.06f, 8, kPanel);
+    DrawRectangleRoundedLinesEx(pr, 0.06f, 8, 1.2f, kPanelEdge);
+    text("ТВОЯ ДЫРА", pr.x + 14, pr.y + 10, 15, kDim, LEFT, true);
+    float y = pr.y + 36;
+    auto row = [&](const char *a, const std::string &b) {
+        text(a, pr.x + 14, y, 14, kText);
+        text(b, pr.x + pr.width - 14, y, 14, kGood, RIGHT, true);
+        y += 21;
+    };
+    std::snprintf(buf, sizeof buf, "%.0f", st.size); row("Стартовый размер", buf);
+    std::snprintf(buf, sizeof buf, "%.0f с", st.time); row("Время захода", buf);
+    std::snprintf(buf, sizeof buf, "×%.2f", st.speed); row("Скорость", buf);
+    std::snprintf(buf, sizeof buf, "×%.2f", st.pull); row("Притяжение", buf);
+    std::snprintf(buf, sizeof buf, "до %.0f%% себя", st.eat * 100); row("Можно съесть", buf);
+    std::snprintf(buf, sizeof buf, "×%.2f", st.growth); row("Рост", buf);
+    row("Масса от всего", "×" + fmtNum(st.value));
+    std::snprintf(buf, sizeof buf, "×%.1f", st.comboMax); row("Предел пира", buf);
+    std::snprintf(buf, sizeof buf, "%.0f%% ×%.0f", st.crit * 100, st.critMult); row("Крит", buf);
+    std::snprintf(buf, sizeof buf, "%d", st.sats); row("Спутники", buf);
+    row("Рывок / коллапс", std::string(st.dash ? "да" : "нет") + " / " + (st.collapse ? "да" : "нет"));
+    std::snprintf(buf, sizeof buf, "%.0f%%", st.armor * 100); row("Защита", buf);
+
+    text("Колесо — масштаб, перетаскивай — двигать", 20, VH - 30, 13, Fade(kDim, 0.8f));
+
+    // кнопка старта
+    bool sh = hover(kStartButton, m);
+    float pp = 0.5f + 0.5f * std::sin(app.t * 4);
+    DrawRectangleRounded(kStartButton, 0.35f, 10, sh ? Color{90, 60, 190, 255} : lerpColor({50, 34, 120, 255}, {70, 50, 160, 255}, pp));
+    DrawRectangleRoundedLinesEx(kStartButton, 0.35f, 10, 2.5f, Fade(kTimeC, 0.6f + 0.4f * pp));
+    text("НАЧАТЬ ЗАХОД ▶", kStartButton.x + kStartButton.width / 2, kStartButton.y + 10, 22, kText, CENTER, true);
+    text("Пробел / Enter", kStartButton.x + kStartButton.width / 2, kStartButton.y + 38, 13, kDim, CENTER);
+
+    if (hovered > 0) {
         const NodeDef &n = kNodes[hovered];
-        std::string foot;
-        if (hovered == 0) foot = "Корень дерева";
-        else if (g.hasNode(n.id)) foot = "✓ Куплено";
-        else if (!g.nodeAvailable(n.id)) foot = std::string("Сначала: ") + kNodes[n.parent].name;
-        else foot = "Цена: " + nodeCostStr(hovered) + (g.canAffordNode(n.id) ? "  — кликни, чтобы купить" : "  — не хватает");
-        drawTooltip(m, n.name, n.desc, foot, branchColor(n.branch));
+        int lv = g.level(hovered);
+        std::string title = n.name;
+        std::string body = std::string(n.desc) + (n.maxLevel > 1 ? "  (за уровень)" : "");
+        std::snprintf(buf, sizeof buf, "Уровень %d/%d", lv, n.maxLevel);
+        std::string foot = lv >= n.maxLevel ? std::string(buf) + "  •  максимум" : std::string(buf) + "  •  цена " + costStr(hovered) + (g.canBuy(hovered) ? "  — кликни" : "  — не хватает");
+        float w = std::max({measure(title, 18, true).x, measure(body, 15).x, measure(foot, 15, true).x}) + 28;
+        float x = std::min(m.x + 18, VW - w - 8), ty = std::min(m.y + 18, VH - 96);
+        Color c = branchColor(n.branch);
+        DrawRectangleRounded({x, ty, w, 86}, 0.15f, 6, {12, 10, 30, 248});
+        DrawRectangleRoundedLinesEx({x, ty, w, 86}, 0.15f, 6, 1.5f, c);
+        text(title, x + 14, ty + 9, 18, c, LEFT, true);
+        text(body, x + 14, ty + 35, 15, kText);
+        text(foot, x + 14, ty + 59, 15, g.canBuy(hovered) ? kGood : kDim, LEFT, true);
         SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
     }
-    return clicked ? hovered : -1;
 }
 
-// ---------- обработка событий игры ----------
+// ---------- события игры ----------
 
 void handleEvents()
 {
     Game &g = app.game;
     for (const Event &e : g.events) {
         switch (e.type) {
-        case EvType::Click: {
-            app.pulse = 1;
-            float pitch = 0.85f + 0.3f * (float)std::min(1.0, (g.comboMult() - 1) / 2.5) + frand(-0.05f, 0.05f);
-            float fy = kCenter.y - holeRadius() - 24;
-            if (e.crit) {
-                app.audio.play(SFX_CRIT, frand(0.9f, 1.1f));
-                addShake(10);
-                shock(kCenter, 500, kAccent, 0.5f, 14);
-                floatText({kCenter.x + frand(-60, 60), fy - 10}, std::string(e.perfect ? "ИДЕАЛЬНЫЙ " : "") + "КРИТ! +" + fmtNum(e.value), kAccent, 34, 1.4f);
-                suckParticles(24, kAccent);
-            } else if (e.perfect) {
-                app.audio.play(SFX_BUY, 1.5f, 0.6f);
-                app.audio.play(SFX_CLICK, pitch, 0.7f);
-                shock(kCenter, 300, kGold, 0.4f, 6);
-                floatText({kCenter.x + frand(-60, 60), fy}, "ИДЕАЛЬНО! +" + fmtNum(e.value), kGold, 26, 1.1f);
-                suckParticles(12, kGold);
-            } else {
-                app.audio.play(SFX_CLICK, pitch, 0.7f);
-                floatText({kCenter.x + frand(-70, 70), fy + frand(-10, 10)}, "+" + fmtNum(e.value), kText, 21, 1.0f);
-                suckParticles(6, lerpColor({200, 180, 255, 255}, kAccent, frand()));
+        case EvType::Eat: case EvType::SatEat: {
+            bool sat = e.type == EvType::SatEat;
+            Color c = e.index >= 0 ? kTierColors[std::min(e.index, kTierCount - 1)] : kDarkC;
+            float rel = e.size / std::max(1.0f, g.R);
+            burstW(e.p, sat ? 4 : 6 + (int)(rel * 18), c, 120 + rel * 200, 2.5f + rel * 3, 0.6f);
+            if (!sat) app.pulse = std::min(1.0f, app.pulse + 0.3f + rel);
+            if (app.eatSoundCd <= 0 || rel > 0.4f) {
+                float pitch = Clamp(1.5f - rel, 0.6f, 1.6f) + std::min(0.4f, g.combo * 0.01f);
+                app.audio.play(e.crit ? SFX_CRIT : SFX_CLICK, pitch, sat ? 0.3f : 0.4f + rel * 0.6f);
+                app.eatSoundCd = 0.05f;
             }
+            if (e.crit || rel > 0.35f) {
+                Vector2 sp = toScreen(e.p);
+                floatText({sp.x, sp.y - 10}, (e.crit ? "КРИТ +" : "+") + fmtNum(e.value), e.crit ? kAccent : kText, e.crit ? 24 : 16 + rel * 10);
+            }
+            if (rel > 0.6f) addShake(3 + rel * 4);
             break;
         }
-        case EvType::Buy: {
-            app.audio.play(SFX_BUY, 0.9f + 0.04f * e.index);
-            app.cardFlash[e.index] = 1;
-            int n = std::min(6, 1 + (int)e.value / 3);
-            for (int k = 0; k < n; k++) spawnInfaller(e.index);
-            Rectangle r = genCard(e.index);
-            burst({r.x + 26, r.y + r.height / 2}, 12, kGood, 150, 3, 0.6f);
+        case EvType::Hurt: {
+            app.audio.play(SFX_DENY, 0.8f);
+            app.hurtVignette = 1;
+            addShake(10);
+            Vector2 sp = toScreen(g.pos);
+            char buf[32];
+            std::snprintf(buf, sizeof buf, "−%.1f с", e.value);
+            floatText({sp.x, sp.y - screenR() - 20}, buf, kBad, 22);
+            burstW(e.p, 20, kBad, 300, 4, 0.6f);
             break;
         }
-        case EvType::Foam: {
-            Rectangle r = genCard(e.index);
-            floatText({r.x + r.width / 2, r.y}, "Квантовая пена: +" + fmtNum(e.value) + " бесплатно!", kDark, 16, 1.6f);
-            spawnInfaller(e.index);
+        case EvType::Clock: {
+            app.audio.play(SFX_BUY, 1.6f);
+            Vector2 sp = toScreen(g.pos);
+            floatText({sp.x, sp.y - screenR() - 24}, "+" + fmtNum(e.value) + " с", kTimeC, 24);
+            shockW(g.pos, 300, kTimeC, 0.5f, 6);
             break;
         }
-        case EvType::Node: {
-            app.audio.play(SFX_NODE);
-            Vector2 p = nodePos(e.index);
-            Color c = branchColor(kNodes[e.index].branch);
-            burst(p, 40, c, 260, 4, 0.9f);
-            burst(p, 20, WHITE, 140, 2.5f, 0.6f);
-            shock(p, 220, c, 0.6f, 10);
-            app.nodeFlash[e.index] = 1;
-            addShake(5);
+        case EvType::Dark: {
+            app.audio.play(SFX_COMET, 1.2f);
+            Vector2 sp = toScreen(g.pos);
+            floatText({sp.x, sp.y - screenR() - 24}, "+1 ◆ тёмная материя", kDarkC, 20);
             break;
         }
-        case EvType::Achievement:
-            app.audio.play(SFX_ACH);
-            toast("ДОСТИЖЕНИЕ!", kAchs[e.index].name, "+2% к доходу  •  +1 ◆", kGold);
+        case EvType::Gold:
+            app.audio.play(SFX_ACH, 1.1f);
+            floatText(toScreen(e.p), "ЗОЛОТО! +" + fmtNum(e.value), kGold, 28, 1.6f);
+            burstW(e.p, 60, kGold, 400, 4, 1.0f);
+            shockW(e.p, 500, kGold, 0.7f, 10);
+            addShake(8);
             break;
-        case EvType::Milestone:
-            app.audio.play(SFX_NODE, 1.3f, 0.6f);
-            toast("ВЕХА!", std::string(kGens[e.index].name) + " ×" + std::to_string((int)e.value),
-                  std::string("доход этого типа ×") + (g.hasNode(C_ATTRACTOR) ? "2" : "1.5"), kGood);
-            for (int k = 0; k < 4; k++) spawnInfaller(e.index);
+        case EvType::Chain:
+            app.audio.play(SFX_WAVE, 1.3f, 0.7f);
+            shockW(e.p, 600, kAccent, 0.7f, 14);
+            burstW(e.p, 40, {255, 200, 120, 255}, 500, 4, 0.9f);
+            floatText(toScreen(e.p), "ЦЕПНАЯ РЕАКЦИЯ!", kAccent, 22, 1.4f);
+            addShake(9);
             break;
-        case EvType::Dark:
-            floatText({640, 150}, "+" + fmtNum(e.value) + " ◆ тёмной материи", kDark, 18, 1.6f);
-            break;
-        case EvType::Comet: {
-            Vector2 p = cometPos();
-            app.audio.play(SFX_COMET);
-            burst(p, 60, kGold, 380, 4, 1.1f);
-            shock(p, 300, kGold, 0.6f, 8);
-            floatText(p, "★ +" + fmtNum(e.value), kGold, 34, 1.8f);
-            addShake(6);
-            break;
-        }
-        case EvType::Frenzy: {
-            Vector2 p = cometPos();
-            app.audio.play(SFX_FRENZY);
-            burst(p, 80, {255, 100, 220, 255}, 420, 5, 1.2f);
-            shock(kCenter, 700, {255, 80, 220, 255}, 1.0f, 20);
-            banner("СВЕРХНОВАЯ", "БЕЗУМИЕ: доход ×7 на 12 секунд!", {255, 120, 230, 255});
+        case EvType::RivalEaten:
+            app.audio.play(SFX_ACH, 0.9f);
+            floatText(toScreen(e.p), "СОПЕРНИК ПОГЛОЩЁН! +" + fmtNum(e.value), kGood, 26, 1.8f);
+            burstW(e.p, 80, kRival, 500, 5, 1.1f);
+            shockW(e.p, 700, kRival, 0.9f, 18);
             addShake(12);
             break;
-        }
-        case EvType::Wave:
+        case EvType::Dash:
+            app.audio.play(SFX_FRENZY, 1.5f, 0.5f);
+            burstW(g.pos, 24, {150, 125, 255, 255}, 300, 4, 0.5f);
+            break;
+        case EvType::Collapse:
             app.audio.play(SFX_WAVE);
-            shock(kCenter, 900, kGravity, 1.3f, 30);
-            shock(kCenter, 650, WHITE, 1.0f, 8);
-            floatText({kCenter.x, kCenter.y - holeRadius() - 70}, "ГРАВИТАЦИОННАЯ ВОЛНА +" + fmtNum(e.value), kGravity, 28, 2.0f);
-            addShake(16);
-            break;
-        case EvType::Rank:
-            app.audio.play(SFX_RANK);
-            banner("НОВЫЙ РАНГ", g.rankName(), kGold);
-            shock(kCenter, 600, kGold, 1.2f, 16);
-            burst(kCenter, 60, kGold, 300, 3, 1.4f);
-            break;
-        case EvType::CometSpawn: {
-            bool fromLeft = GetRandomValue(0, 1);
-            app.cometFrom = {fromLeft ? -60.0f : VW + 60, frand(160, 330)};
-            app.cometTo = {fromLeft ? VW + 60 : -60.0f, frand(220, 560)};
-            app.cometCtrl = {640 + frand(-150, 150), frand(40, 200)};
-            break;
-        }
-        case EvType::Flare:
-            app.audio.play(SFX_FRENZY, 1.4f, 0.6f);
-            banner("ЗВЁЗДНАЯ ВСПЫШКА", std::string(kGens[e.index].name) + ": доход ×5 на 20 с", kAccent);
-            app.cardFlash[e.index] = 1;
-            shock(kCenter, 500, kAccent, 0.8f, 12);
-            break;
-        case EvType::RivalSpawn:
-            app.audio.play(SFX_DENY, 0.6f);
-            app.audio.play(SFX_WAVE, 1.6f, 0.7f);
-            banner("ЧЁРНАЯ ДЫРА-СОПЕРНИК", "Кликай по ней, пока она крадёт твою массу!", kRival);
-            shock(rivalPos(), 400, kRival, 0.8f, 12);
-            addShake(8);
-            break;
-        case EvType::RivalHit:
-            app.audio.play(SFX_CLICK, frand(1.4f, 1.7f), 0.7f);
-            app.rivalHitFlash = 1;
-            burst(rivalPos(), 8, kRival, 200, 3, 0.5f);
-            break;
-        case EvType::RivalKilled:
-            app.audio.play(SFX_CRIT, 0.7f);
-            app.audio.play(SFX_ACH, 1.2f, 0.7f);
-            burst(rivalPos(), 100, kRival, 450, 5, 1.2f);
-            burst(rivalPos(), 50, kGold, 300, 3, 1.0f);
-            shock(rivalPos(), 600, kRival, 1.0f, 20);
-            floatText(rivalPos(), "СОПЕРНИК ПОГЛОЩЁН! +" + fmtNum(e.value), kGold, 28, 2.2f);
+            shockW(g.pos, 1200, {150, 125, 255, 255}, 1.2f, 30);
+            banner("ГРАВИТАЦИОННЫЙ КОЛЛАПС", "Всё съедобное тянется к тебе!", {150, 125, 255, 255});
             addShake(14);
             break;
-        case EvType::RivalLeft:
-            app.audio.play(SFX_DENY, 0.5f);
-            floatText(rivalPos(), "Соперник сбежал с " + fmtNum(e.value), kRival, 22, 2.0f);
-            burst(rivalPos(), 30, kRival, 200, 3, 0.8f);
+        case EvType::LoopSave:
+            app.audio.play(SFX_ACH);
+            banner("ПЕТЛЯ ВРЕМЕНИ", "+8 секунд второй жизни!", kTimeC);
+            shockW(g.pos, 900, kTimeC, 1.0f, 20);
             break;
-        case EvType::MeteorStart:
-            app.audio.play(SFX_COMET, 0.6f);
-            banner("МЕТЕОРИТНЫЙ ДОЖДЬ", "Лови метеоры кликами — 10 секунд!", {255, 160, 80, 255});
+        case EvType::RunStart:
+            app.runStartBest = g.bestR;
             break;
-        case EvType::Meteor:
-            app.audio.play(SFX_COMET, frand(1.2f, 1.5f), 0.5f);
+        case EvType::RunEnd:
+            app.audio.play(SFX_RANK, 0.8f);
+            app.lastInterest = e.value;
+            app.screen = Screen::RunEnd;
+            app.runEndT = 0;
+            burstW(g.pos, 80, kTimeC, 400, 3, 1.2f);
             break;
-        case EvType::Intercept:
-            app.audio.play(SFX_BUY, 1.6f, 0.5f);
-            break;
-        case EvType::Ability: {
-            static const Color cols[] = {kCosmos, kGravity, kGold};
-            app.abilityFlash[e.index] = 1;
-            app.audio.play(e.index == AB_PORTAL ? SFX_ACH : SFX_FRENZY, e.index == AB_WARP ? 0.7f : 1.1f);
-            shock(kCenter, 800, cols[e.index], 1.0f, 22);
-            if (e.index == AB_PORTAL) {
-                floatText({kCenter.x, kCenter.y - holeRadius() - 60}, "БЕЛАЯ ДЫРА +" + fmtNum(e.value), WHITE, 30, 2.0f);
-                burst(kCenter, 120, WHITE, 500, 4, 1.2f);
-            }
-            if (e.index == AB_WARP) banner("ИСКРИВЛЕНИЕ ВРЕМЕНИ", "Время течёт втрое быстрее", kCosmos);
-            if (e.index == AB_RUSH) banner("ГРАВИТАЦИОННЫЙ РЫВОК", "Клики ×3 — жми!", kGravity);
-            addShake(8);
-            break;
-        }
-        case EvType::Collapse:
+        case EvType::Win:
             app.audio.play(SFX_COLLAPSE);
             app.screen = Screen::Collapse;
             app.collapseT = 0;
-            app.treeOpen = false;
-            g.cometLeft = 0;
-            g.rivalActive = false;
-            app.meteors.clear();
             break;
+        case EvType::NodeBuy: {
+            app.audio.play(SFX_NODE, 0.9f + 0.05f * kNodes[e.index].ring);
+            if (app.nodeFlash.size() == kNodes.size()) app.nodeFlash[e.index] = 1;
+            Vector2 sp = treeToScreen(nodeWorld(e.index));
+            floatText({sp.x, sp.y - 34}, kNodes[e.index].name, branchColor(kNodes[e.index].branch), 16, 1.2f);
+            break;
+        }
         }
     }
     g.events.clear();
@@ -1236,260 +1075,116 @@ void handleEvents()
 
 void updateEffects(float dt)
 {
-    Game &g = app.game;
-    float R = holeRadius();
-    float sdt = dt * (float)g.timeScale();
     for (auto &p : app.parts) {
-        if (p.attract) {
-            Vector2 d = Vector2Subtract(kCenter, p.p);
-            float dist = Vector2Length(d);
-            p.v = Vector2Add(p.v, Vector2Scale(Vector2Normalize(d), 900 * dt));
-            if (dist < R * 0.95f) p.life = 0;
-        } else {
-            p.v = Vector2Scale(p.v, 1 - 1.8f * dt);
-        }
+        p.v = Vector2Scale(p.v, 1 - 2.0f * dt);
         p.p = Vector2Add(p.p, Vector2Scale(p.v, dt));
         p.life -= dt;
     }
     app.parts.erase(std::remove_if(app.parts.begin(), app.parts.end(), [](const Particle &p) { return p.life <= 0; }), app.parts.end());
-    if (app.parts.size() > 2500) app.parts.erase(app.parts.begin(), app.parts.begin() + (app.parts.size() - 2500));
-
+    if (app.parts.size() > 3000) app.parts.erase(app.parts.begin(), app.parts.begin() + (app.parts.size() - 3000));
     for (auto &f : app.floats) {
         f.p.y += f.vy * dt;
         f.vy *= 1 - 1.5f * dt;
         f.life -= dt;
     }
     app.floats.erase(std::remove_if(app.floats.begin(), app.floats.end(), [](const FloatText &f) { return f.life <= 0; }), app.floats.end());
-    if (app.floats.size() > 60) app.floats.erase(app.floats.begin(), app.floats.begin() + (app.floats.size() - 60));
-
     for (auto &s : app.shocks) {
         s.r += s.speed * dt;
         s.life -= dt;
     }
     app.shocks.erase(std::remove_if(app.shocks.begin(), app.shocks.end(), [](const Shock &s) { return s.life <= 0; }), app.shocks.end());
-
-    for (auto &f : app.infallers) {
-        float speed = 35 + 26000 / std::max(f.r, 20.0f);
-        f.r -= speed * sdt;
-        f.ang += sdt * 260 / std::pow(std::max(f.r, 20.0f), 1.05f);
-        f.rot += f.spin * sdt;
-        if (f.r < R) {
-            Vector2 p = {kCenter.x + std::cos(f.ang) * R, kCenter.y + std::sin(f.ang) * R * 0.62f};
-            burst(p, 4 + f.type, kGenColors[f.type], 90, 2.5f, 0.5f);
-        }
-    }
-    app.infallers.erase(std::remove_if(app.infallers.begin(), app.infallers.end(), [R](const Infaller &f) { return f.r < R; }), app.infallers.end());
-    if (app.infallers.size() > 160) app.infallers.erase(app.infallers.begin(), app.infallers.begin() + (app.infallers.size() - 160));
-
-    // Метеоры
-    if (g.meteorLeft > 0 && app.screen == Screen::Play) {
-        app.meteorAcc += sdt * 1.6f;
-        while (app.meteorAcc >= 1) {
-            app.meteorAcc -= 1;
-            Vector2 p = {frand(450, 1150), -30};
-            Vector2 v = {frand(-260, -160), frand(170, 240)};
-            app.meteors.push_back({p, v, frand(9, 13), frand(0, 360)});
-        }
-    }
-    for (auto &m : app.meteors) {
-        m.p = Vector2Add(m.p, Vector2Scale(m.v, sdt));
-        m.rot += 120 * sdt;
-    }
-    app.meteors.erase(std::remove_if(app.meteors.begin(), app.meteors.end(), [](const Meteor &m) { return m.p.y > VH + 40 || m.p.x < -40; }), app.meteors.end());
-
-    if (!app.toasts.empty()) {
-        app.toasts.front().t += dt * (app.toasts.size() > 2 ? 1.8f : 1.0f);
-        if (app.toasts.front().t > 3.2f) app.toasts.erase(app.toasts.begin());
-    }
-
-    float starK = g.abilityLeft[AB_WARP] > 0 ? 6 : 1;
-    for (auto &s : app.stars) {
-        s.p.x -= s.speed * dt * starK;
-        if (s.p.x < -10) s.p = {VW + 10, frand(0, VH)};
-    }
-
-    for (int i = 0; i < kGenCount; i++) {
-        app.cardShake[i] = std::max(0.0f, app.cardShake[i] - dt);
-        app.cardFlash[i] = std::max(0.0f, app.cardFlash[i] - dt * 2.5f);
-    }
     for (float &f : app.nodeFlash) f = std::max(0.0f, f - dt * 1.5f);
-    for (float &f : app.abilityFlash) f = std::max(0.0f, f - dt * 2);
-
-    app.rivalHitFlash = std::max(0.0f, app.rivalHitFlash - dt * 6);
-    app.pulse = std::max(0.0f, app.pulse - dt * 5);
+    app.pulse = std::max(0.0f, app.pulse - dt * 4);
     app.bannerT = std::max(0.0f, app.bannerT - dt);
+    app.hurtVignette = std::max(0.0f, app.hurtVignette - dt * 2);
+    app.eatSoundCd -= dt;
     app.shake = std::max(0.0f, app.shake - dt * 30);
     app.camShake = {frand(-1, 1) * app.shake, frand(-1, 1) * app.shake};
-    app.horizonShown += ((float)g.horizon() - app.horizonShown) * std::min(1.0f, dt * 2);
 }
 
-void spawnPassiveInfallers(float dt)
+void followCamera(float dt, float zoomTarget)
 {
     Game &g = app.game;
-    int total = 0;
-    for (int c : g.gens) total += c;
-    if (total == 0) return;
-    app.infallAcc += dt * (float)g.timeScale() * std::min(3.5f, 0.4f + total * 0.02f);
-    while (app.infallAcc >= 1) {
-        app.infallAcc -= 1;
-        double w = 0;
-        for (int i = 0; i < kGenCount; i++) w += g.gens[i] * (1 + i);
-        double pick = frand() * w;
-        for (int i = 0; i < kGenCount; i++) {
-            pick -= g.gens[i] * (1 + i);
-            if (pick <= 0) { spawnInfaller(i); break; }
-        }
-    }
+    Vector2 before = app.cam;
+    float k = std::min(1.0f, dt * 8);
+    app.cam.x += (g.pos.x - app.cam.x) * k;
+    app.cam.y += (g.pos.y - app.cam.y) * k;
+    app.zoom += (zoomTarget - app.zoom) * std::min(1.0f, dt * 2.5f);
+    app.starScroll = Vector2Add(app.starScroll, Vector2Scale(Vector2Subtract(app.cam, before), app.zoom));
 }
 
-void doClick()
+void startRun()
 {
-    if (app.clickTokens < 1) return;
-    app.clickTokens -= 1;
-    app.game.click();
-}
-
-void tryBuy(int i)
-{
-    if (app.game.buyGen(i, buyAmount(i)) == 0) {
-        app.cardShake[i] = 0.3f;
-        app.audio.play(SFX_DENY);
-    }
-}
-
-void tryAbility(Ability a)
-{
-    if (!app.game.useAbility(a)) app.audio.play(SFX_DENY, 1.2f, 0.5f);
-}
-
-void startGame()
-{
-    app.game.reset((uint32_t)std::time(nullptr));
+    Game &g = app.game;
+    g.startRun();
+    app.cam = {g.pos.x, g.pos.y};
+    app.zoom = g.zoomFor(g.R);
     app.parts.clear();
     app.floats.clear();
-    app.infallers.clear();
     app.shocks.clear();
-    app.toasts.clear();
-    app.meteors.clear();
-    app.horizonShown = 0;
-    app.treeOpen = false;
-    app.bannerT = 0;
-    app.screen = Screen::Play;
+    app.screen = Screen::Run;
 }
 
-// Что находится под курсором — в порядке приоритета для клика.
-enum class Target { None, Comet, Rival, Meteor, Infaller, Hole, Collapse, Tree, BuyMode, Card, Ability };
+void newGame()
+{
+    app.game.reset((uint32_t)std::time(nullptr));
+    app.realTime = 0;
+    app.treeCam = {0, 0};
+    app.treeZoom = 0.85f;
+    startRun();
+}
 
-Target pickTarget(Vector2 m, int &index)
+void updateTree(Vector2 m, int hovered)
 {
     Game &g = app.game;
-    index = -1;
-    if (g.mass >= kGoal && hover(kCollapseButton, m)) return Target::Collapse;
-    if (hover(kTreeButton, m)) return Target::Tree;
-    if (hover(kBuyModeButton, m)) return Target::BuyMode;
-    for (int i = 0; i < kGenCount; i++)
-        if (g.genVisible(i) && hover(genCard(i), m)) { index = i; return Target::Card; }
-    for (int a = 0; a < AB_COUNT; a++)
-        if (g.abilityUnlocked((Ability)a) && hover(abilityRect(a), m)) { index = a; return Target::Ability; }
-    if (hover(kLeftPanel, m) || hover(kRightPanel, m)) return Target::None;
-    if (g.cometLeft > 0 && Vector2Distance(m, cometPos()) < 46) return Target::Comet;
-    if (g.rivalActive && Vector2Distance(m, rivalPos()) < 42) return Target::Rival;
-    for (int k = 0; k < (int)app.meteors.size(); k++)
-        if (Vector2Distance(m, app.meteors[k].p) < 30) { index = k; return Target::Meteor; }
-    float R = holeRadius();
-    if (g.hasNode(C_INTERCEPT))
-        for (int k = (int)app.infallers.size() - 1; k >= 0; k--) {
-            const Infaller &f = app.infallers[k];
-            if (f.r > R * 1.9f && Vector2Distance(m, infallerPos(f)) < f.size + 10) { index = k; return Target::Infaller; }
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0) {
+        float nz = Clamp(app.treeZoom * (wheel > 0 ? 1.12f : 0.89f), 0.45f, 1.8f);
+        // масштаб вокруг курсора
+        Vector2 wBefore = {(m.x - kScreenC.x) / app.treeZoom + app.treeCam.x, (m.y - kScreenC.y) / app.treeZoom + app.treeCam.y};
+        app.treeZoom = nz;
+        app.treeCam = {wBefore.x - (m.x - kScreenC.x) / nz, wBefore.y - (m.y - kScreenC.y) / nz};
+    }
+    if (gClicks > 0 && !app.pressed) {
+        app.pressed = true;
+        app.pressPos = m;
+        app.pressCam = app.treeCam;
+        app.dragging = false;
+    }
+    if (app.pressed && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        if (Vector2Distance(m, app.pressPos) > 6) app.dragging = true;
+        if (app.dragging) app.treeCam = Vector2Subtract(app.pressCam, Vector2Scale(Vector2Subtract(m, app.pressPos), 1 / app.treeZoom));
+    }
+    bool released = app.pressed && !IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    // короткий тап может прийти без «удержания» — считаем его кликом
+    bool tap = (released && !app.dragging) || (gClicks > 0 && !IsMouseButtonDown(MOUSE_BUTTON_LEFT));
+    if (released || (gClicks > 0 && !IsMouseButtonDown(MOUSE_BUTTON_LEFT))) app.pressed = false;
+    if (tap) {
+        Vector2 p = app.pressPos;
+        if (gClicks > 0 && !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) p = m;
+        if (CheckCollisionPointRec(p, kStartButton)) {
+            startRun();
+            return;
         }
-    if (CheckCollisionPointCircle(m, kCenter, R * 1.7f)) return Target::Hole;
-    return Target::None;
-}
-
-void updatePlay(float dt, Vector2 m)
-{
-    Game &g = app.game;
-    if (keyHit(KEY_T)) app.treeOpen = !app.treeOpen;
-    if (keyHit(KEY_ESCAPE)) app.treeOpen = false;
-    if (keyHit(KEY_B)) app.buyMode = (app.buyMode + 1) % 3;
-    if (keyHit(KEY_Q)) tryAbility(AB_WARP);
-    if (keyHit(KEY_W)) tryAbility(AB_RUSH);
-    if (keyHit(KEY_E)) tryAbility(AB_PORTAL);
-
-    if (!app.treeOpen) {
-        if (keyHit(KEY_SPACE)) {
-            if (g.rivalActive) g.hitRival();
-            else doClick();
-        }
-        for (int i = 0; i < kGenCount; i++)
-            if (keyHit(i == 9 ? KEY_ZERO : KEY_ONE + i)) tryBuy(i);
-        if ((keyHit(KEY_ENTER) || keyHit(KEY_KP_ENTER)) && g.mass >= kGoal) g.collapse();
-
-        int idx;
-        Target tg = pickTarget(m, idx);
-        if (tg != Target::None) SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
-        for (int c = 0; c < gClicks; c++) {
-            switch (tg) {
-            case Target::Comet: g.catchComet(); break;
-            case Target::Rival: g.hitRival(); break;
-            case Target::Meteor:
-                if (idx >= 0 && idx < (int)app.meteors.size() && g.catchMeteor()) {
-                    Vector2 p = app.meteors[idx].p;
-                    burst(p, 24, {255, 160, 80, 255}, 260, 3.5f, 0.7f);
-                    floatText(p, "+" + fmtNum(g.events.back().value), {255, 180, 100, 255}, 20, 1.0f);
-                    app.meteors.erase(app.meteors.begin() + idx);
-                    idx = -1;
-                }
-                break;
-            case Target::Infaller:
-                if (idx >= 0 && idx < (int)app.infallers.size()) {
-                    Infaller f = app.infallers[idx];
-                    if (g.intercept(f.type)) {
-                        Vector2 p = infallerPos(f);
-                        burst(p, 18, kGenColors[f.type], 220, 3, 0.6f);
-                        floatText(p, "Перехват +" + fmtNum(g.events.back().value), kCosmos, 18, 1.1f);
-                        app.infallers.erase(app.infallers.begin() + idx);
-                        idx = -1;
-                    }
-                }
-                break;
-            case Target::Hole: doClick(); break;
-            case Target::Collapse: g.collapse(); break;
-            case Target::Tree: app.treeOpen = true; app.audio.play(SFX_BUY, 1.4f, 0.5f); break;
-            case Target::BuyMode: app.buyMode = (app.buyMode + 1) % 3; app.audio.play(SFX_BUY, 1.8f, 0.4f); break;
-            case Target::Card: tryBuy(idx); break;
-            case Target::Ability: tryAbility((Ability)idx); break;
-            case Target::None: break;
-            }
-            if (tg == Target::Tree || tg == Target::BuyMode || tg == Target::Collapse) break;
+        if (hovered > 0) {
+            if (!g.buyNode(hovered)) app.audio.play(SFX_DENY, 1.2f, 0.5f);
         }
     }
-
-    g.update(dt);
-    spawnPassiveInfallers(dt);
-}
-
-// ---------- кадры ----------
-
-void drawFloats()
-{
-    for (auto &f : app.floats) {
-        float k = f.life / f.maxLife;
-        float s = f.size * (k > 0.85f ? 1 + (k - 0.85f) * 3 : 1);
-        text(f.s, f.p.x + 2, f.p.y + 2, s, Fade(BLACK, k * 0.6f), CENTER, true);
-        text(f.s, f.p.x, f.p.y, s, Fade(f.c, std::min(1.0f, k * 2)), CENTER, true);
-    }
+    if (keyHit(KEY_SPACE) || keyHit(KEY_ENTER) || keyHit(KEY_KP_ENTER)) startRun();
+    if (CheckCollisionPointRec(m, kStartButton)) SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
 }
 
 void drawIntro()
 {
-    DrawRectangle(0, 0, (int)VW, (int)VH, Fade(kBg, 0.7f));
-    textGlow("ГОРИЗОНТ СОБЫТИЙ", 640, 110, 64, kText, CENTER, kGravity);
-    text("инкрементальная игра про чёрную дыру", 640, 186, 22, kDim, CENTER);
-    text("Ты — крошечная чёрная дыра. Поглощай пыль, планеты, звёзды и галактики, прокачивай", 640, 548, 18, kText, CENTER);
-    text("дерево из 31 умения, лови кометы и метеоры, побеждай соперников и копи тёмную материю.", 640, 572, 18, kText, CENTER);
-    text("Цель — проглотить всю Вселенную. Примерно 9 минут.", 640, 596, 18, kText, CENTER);
-    if (std::fmod(app.t, 1.0f) < 0.7f) textGlow("Кликни, чтобы начать", 640, 640, 28, kGold, CENTER, kAccent);
+    drawBackground(kScreenC, 70, true);
+    app.pulse = 0.2f;
+    drawHoleAt({640, 380}, 70, 0.3f, 0);
+    textGlow("ГОРИЗОНТ СОБЫТИЙ", 640, 70, 64, kText, CENTER, {150, 125, 255, 255});
+    text("инкрементальная игра про чёрную дыру", 640, 146, 22, kDim, CENTER);
+    text("Веди дыру мышкой и поглощай всё, что меньше тебя: от пыли до сверхскоплений галактик.", 640, 560, 18, kText, CENTER);
+    text("Дыра испаряется — между заходами качай созвездие из 75 улучшений и стань больше.", 640, 584, 18, kText, CENTER);
+    text("Цель — открыть и проглотить Ядро Вселенной. Около 9 минут.", 640, 608, 18, kText, CENTER);
+    if (std::fmod(app.t, 1.0f) < 0.7f) textGlow("Кликни, чтобы начать", 640, 650, 28, kGold, CENTER, kAccent);
 }
 
 void drawEnd()
@@ -1499,40 +1194,36 @@ void drawEnd()
     if (GetRandomValue(0, 1)) {
         Color c = ColorFromHSV(frand(0, 360), 0.6f, 1);
         float a = frand(0, 2 * PI), s = frand(60, 500);
-        app.parts.push_back({{640, 360}, {std::cos(a) * s, std::sin(a) * s}, 3, 3, frand(1, 4), c, false});
+        app.parts.push_back({{app.cam.x, app.cam.y}, {std::cos(a) * s / app.zoom, std::sin(a) * s / app.zoom}, 3, 3, frand(1, 4), c});
     }
     BeginBlendMode(BLEND_ADDITIVE);
     DrawCircleGradient(640, 360, 200 + 30 * std::sin(app.t * 2), Fade({255, 230, 200, 255}, 0.35f), {0, 0, 0, 0});
     EndBlendMode();
     drawEffects();
-
     float k = Clamp(app.endT / 1.5f, 0, 1);
-    Rectangle r = {340, 100, 600, 520};
+    Rectangle r = {360, 110, 560, 480};
     DrawRectangleRounded(r, 0.08f, 8, Fade({10, 8, 24, 255}, 0.85f * k));
     DrawRectangleRoundedLinesEx(r, 0.08f, 8, 2, Fade(kGold, k));
-    textGlow("ВСЕЛЕННАЯ ПОГЛОЩЕНА", 640, 120, 40, Fade(kText, k), CENTER, Fade(kGravity, k));
-    text("...и из сингулярности рождается новый Большой взрыв", 640, 170, 18, Fade(kDim, k), CENTER);
-    int sec = (int)g.time;
-    char buf[128];
-    std::snprintf(buf, sizeof buf, "%02d:%02d", sec / 60, sec % 60);
-    text("Время прохождения", 640, 206, 18, Fade(kDim, k), CENTER);
-    textGlow(buf, 640, 230, 54, Fade(kGold, k), CENTER, Fade(kAccent, k));
-    float y = 308;
-    auto row = [&](const char *name, const std::string &val) {
-        text(name, 400, y, 18, Fade(kText, k));
-        text(val, 880, y, 18, Fade(kText, k), RIGHT, true);
-        y += 27;
+    textGlow("ВСЕЛЕННАЯ ПОГЛОЩЕНА", 640, r.y + 20, 40, Fade(kText, k), CENTER, Fade({150, 125, 255, 255}, k));
+    text("...и из сингулярности рождается новый Большой взрыв", 640, r.y + 70, 18, Fade(kDim, k), CENTER);
+    text("Время прохождения", 640, r.y + 106, 18, Fade(kDim, k), CENTER);
+    textGlow(fmtTime(app.realTime), 640, r.y + 130, 54, Fade(kGold, k), CENTER, Fade(kAccent, k));
+    float y = r.y + 210;
+    auto row = [&](const char *a, const std::string &b) {
+        text(a, r.x + 50, y, 18, Fade(kText, k));
+        text(b, r.x + r.width - 50, y, 18, Fade(kText, k), RIGHT, true);
+        y += 30;
     };
+    row("Заходов", std::to_string(g.runs));
+    row("Время в космосе", fmtTime(g.playTime));
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%.0f", g.bestR);
+    row("Рекорд размера", buf);
     row("Поглощено массы", fmtNum(g.total));
-    row("Кликов / идеальных", std::to_string(g.clicks) + " / " + std::to_string(g.perfects));
-    row("Критов", std::to_string(g.crits));
-    row("Поймано комет / метеоров", std::to_string(g.cometsCaught) + " / " + std::to_string(g.meteorsCaught));
-    row("Побеждено соперников", std::to_string(g.rivalsKilled));
-    row("Перехвачено объектов", std::to_string(g.intercepts));
-    row("Добыто тёмной материи", fmtNum(g.darkTotal));
-    row("Узлов дерева", std::to_string(g.nodesOwned()) + " / " + std::to_string(N_COUNT - 1));
-    row("Достижений", std::to_string(g.achCount()) + " / " + std::to_string(ACH_COUNT));
-    if (std::fmod(app.t, 1.0f) < 0.7f) text("R — сыграть снова     Esc — выход", 640, 646, 20, Fade(kText, k), CENTER, true);
+    int lv = 0, maxLv = 0;
+    for (size_t i = 1; i < kNodes.size(); i++) { lv += g.level((int)i); maxLv += kNodes[i].maxLevel; }
+    row("Уровней прокачки", std::to_string(lv) + " / " + std::to_string(maxLv));
+    if (std::fmod(app.t, 1.0f) < 0.7f) text("R — сыграть снова     Esc — выход", 640, r.y + r.height + 24, 20, Fade(kText, k), CENTER, true);
 }
 
 void loadShader()
@@ -1550,48 +1241,45 @@ void loadShader()
     UnloadImage(img);
 }
 
-// Отладочные сцены для скриншотов: BH_SCENE=intro|play|mid|late|tree|collapse|end.
+// Отладочные сцены для скриншотов: BH_SCENE=intro|run|big|runend|tree|treelate|end.
 void devScene(const std::string &scene)
 {
-    startGame();
     Game &g = app.game;
-    auto give = [&](double m) { g.mass += m; g.total += m; };
-    if (scene == "intro") { app.screen = Screen::Intro; return; }
-    bool early = scene == "play";
-    int n = early ? 3 : scene == "mid" ? 7 : kGenCount;
-    for (int i = 0; i < n; i++) {
-        int cnt = early ? 12 - i * 4 : scene == "mid" ? 30 - i * 3 : 40 - i * 2;
-        for (int k = 0; k < cnt; k++) { give(g.genCost(i)); g.buyGen(i, 1); }
+    if (scene == "intro") return;
+    auto buyRounds = [&](double gift, double darkGift) {
+        g.mass += gift;
+        g.dark += darkGift;
+        for (bool any = true; any;) {
+            any = false;
+            for (size_t i = 1; i < kNodes.size(); i++)
+                if (g.buyNode((int)i)) any = true;
+        }
+        g.events.clear();
+    };
+    if (scene == "run") { newGame(); }
+    if (scene == "big" || scene == "treelate" || scene == "end") { buyRounds(3e6, 25); g.runs = 6; }
+    if (scene == "tree") { buyRounds(3000, 3); g.runs = 3; g.mass = 1800; g.dark = 2; }
+    if (scene == "big") { startRun(); }
+    if (scene == "runend") { newGame(); }
+    if (scene == "tree" || scene == "treelate") { app.screen = Screen::Tree; g.bestR = 140; app.realTime = 200; }
+    if (scene == "run" || scene == "big" || scene == "runend") {
+        // немного полетать ботом, чтобы сцена ожила
+        for (int k = 0; k < (scene == "big" ? 200 : 120) && g.phase == Phase::Run; k++) {
+            Vec target = g.pos;
+            float best = 1e30f;
+            for (auto &o : g.objs)
+                if (g.canEat(o) && o.kind == K_TIER) {
+                    float d = std::hypot(o.p.x - g.pos.x, o.p.y - g.pos.y) / (o.size + 1);
+                    if (d < best) { best = d; target = o.p; }
+                }
+            g.update(1.0 / 30, target, false, false);
+            g.events.clear();
+        }
+        app.cam = {g.pos.x, g.pos.y};
+        app.zoom = g.zoomFor(g.R);
     }
-    for (int i = 1; i < N_COUNT; i++) {
-        bool take = early ? kNodes[i].cost < 400 && kNodes[i].branch != Branch::Dark
-                          : scene == "mid" ? (kNodes[i].branch == Branch::Dark ? kNodes[i].cost <= 6 : kNodes[i].cost < 1e7) : true;
-        if (!take) continue;
-        if (kNodes[i].branch == Branch::Dark) g.dark += kNodes[i].cost;
-        else give(kNodes[i].cost);
-        g.buyNode((NodeId)i);
-    }
-    g.dark += 5;
-    if (scene == "late" || scene == "collapse") give(kGoal * 1.2);
-    g.events.clear();
-    for (int i = 0; i < 25; i++) g.click();
-    g.events.clear();
-    g.update(0.01);
-    g.events.clear();
-    app.toasts.clear();
-    g.cometLeft = 5;
-    app.cometFrom = {-60, 200}; app.cometCtrl = {600, 80}; app.cometTo = {1340, 400};
-    if (scene == "mid") {
-        g.rivalActive = true; g.rivalMaxHp = 25; g.rivalHp = 16; g.rivalLeft = 18; g.rivalStolen = g.mass * 0.2;
-        g.rivalX = 0.75f; g.rivalY = 0.15f;
-        g.meteorLeft = 8;
-        g.flareGen = 4; g.flareLeft = 12;
-        g.abilityCd[AB_RUSH] = 30; g.abilityLeft[AB_WARP] = 6; g.abilityCd[AB_WARP] = 80;
-    }
-    app.horizonShown = (float)g.horizon();
-    if (scene == "tree") app.treeOpen = true;
-    if (scene == "end") { g.collapse(); g.events.clear(); app.screen = Screen::End; app.endT = 3; }
-    if (scene == "collapse") { g.events.clear(); g.collapse(); }
+    if (scene == "runend") { g.timeLeft = 0.01; }
+    if (scene == "end") { app.screen = Screen::End; app.endT = 3; app.realTime = 534; }
 }
 
 }  // namespace
@@ -1614,14 +1302,15 @@ int main()
     app.game.reset((uint32_t)std::time(nullptr));
     if (const char *scene = std::getenv("BH_SCENE")) devScene(scene);
 
-    const char *shotEnv = std::getenv("BH_SCREENSHOT");  // для автотестов: снимок и выход
+    const char *shotEnv = std::getenv("BH_SCREENSHOT");
     const int shotFrame = std::getenv("BH_FRAME") ? std::atoi(std::getenv("BH_FRAME")) : 90;
     int frame = 0;
 
     while (!WindowShouldClose()) {
         float dt = std::min(GetFrameTime(), 0.1f);
         gClicks = gPendingClicks;
-        gPendingClicks = 0;
+        gRight = gPendingRight;
+        gPendingClicks = gPendingRight = 0;
         gKeys.clear();
         for (int k = GetKeyPressed(); k != 0; k = GetKeyPressed()) gKeys.push_back(k);
         app.t += dt;
@@ -1638,21 +1327,41 @@ int main()
         if (keyHit(KEY_F) || keyHit(KEY_F11)) ToggleBorderlessWindowed();
         if (keyHit(KEY_M)) app.audio.toggleMute();
         app.audio.update();
-        app.clickTokens = std::min(20.0f, app.clickTokens + dt * 20);
 
-        int treeClick = -1;
+        Game &g = app.game;
         bool quit = false;
+        int hovered = -1;
         switch (app.screen) {
         case Screen::Intro:
-            if (gClicks > 0 || keyHit(KEY_SPACE) || keyHit(KEY_ENTER)) startGame();
+            if (gClicks > 0 || keyHit(KEY_SPACE) || keyHit(KEY_ENTER)) newGame();
             break;
-        case Screen::Play:
-            updatePlay(dt, m);
+        case Screen::Run: {
+            app.realTime += dt;
+            Vec target = toWorld(m);
+            bool dash = keyHit(KEY_SPACE) || gRight > 0;
+            bool col = keyHit(KEY_Q);
+            g.update(dt, target, dash, col);
+            followCamera(dt, g.zoomFor(g.R));
             break;
+        }
+        case Screen::RunEnd:
+            app.realTime += dt;
+            app.runEndT += dt;
+            followCamera(dt, g.zoomFor(g.R) * 0.7f);
+            if (app.runEndT > 0.6f && (gClicks > 0 || keyHit(KEY_SPACE) || keyHit(KEY_ENTER))) {
+                g.finishRunScreen();
+                app.screen = Screen::Tree;
+                app.parts.clear();
+                app.shocks.clear();
+            }
+            break;
+        case Screen::Tree:
+            app.realTime += dt;
+            break;  // ввод — после отрисовки, когда известен узел под курсором
         case Screen::Collapse:
             app.collapseT += dt;
             addShake(4 + app.collapseT * 4);
-            for (auto &s : app.stars) s.p = Vector2Lerp(s.p, kCenter, dt * app.collapseT * 0.4f);
+            app.zoom *= 1 + dt * 0.8f;
             if (app.collapseT > 4.5f) {
                 app.screen = Screen::End;
                 app.endT = 0;
@@ -1660,14 +1369,14 @@ int main()
                 app.parts.clear();
                 for (int i = 0; i < 400; i++) {
                     Color c = ColorFromHSV(frand(0, 360), 0.5f, 1);
-                    float a = frand(0, 2 * PI), s = frand(100, 900);
-                    app.parts.push_back({{640, 360}, {std::cos(a) * s, std::sin(a) * s}, 3, 3, frand(2, 6), c, false});
+                    float a = frand(0, 2 * PI), s = frand(100, 900) / app.zoom;
+                    app.parts.push_back({{app.cam.x, app.cam.y}, {std::cos(a) * s, std::sin(a) * s}, 3, 3, frand(2, 6), c});
                 }
             }
             break;
         case Screen::End:
             app.endT += dt;
-            if (keyHit(KEY_R)) startGame();
+            if (keyHit(KEY_R)) newGame();
             if (keyHit(KEY_ESCAPE)) quit = true;
             break;
         }
@@ -1681,46 +1390,35 @@ int main()
         Camera2D scene = ui;
         scene.offset = Vector2Add(ui.offset, Vector2Scale(app.camShake, scale));
         BeginScissorMode((int)ui.offset.x, (int)ui.offset.y, (int)(VW * scale), (int)(VH * scale));
-
-        if (app.screen == Screen::End) {
+        switch (app.screen) {
+        case Screen::Intro:
+            BeginMode2D(ui);
+            drawIntro();
+            EndMode2D();
+            break;
+        case Screen::Run: case Screen::RunEnd: case Screen::Collapse:
+            BeginMode2D(scene);
+            drawRunWorld();
+            EndMode2D();
+            BeginMode2D(ui);
+            drawFloats();
+            if (app.screen == Screen::Run) drawRunHud();
+            drawBanner();
+            if (app.screen == Screen::RunEnd) drawRunEnd();
+            if (app.screen == Screen::Collapse) DrawRectangle(0, 0, (int)VW, (int)VH, Fade(WHITE, Clamp((app.collapseT - 3.5f), 0, 1)));
+            EndMode2D();
+            break;
+        case Screen::Tree:
+            BeginMode2D(ui);
+            drawTree(m, hovered);
+            drawFloats();
+            EndMode2D();
+            break;
+        case Screen::End:
             BeginMode2D(ui);
             drawEnd();
             EndMode2D();
-        } else {
-            BeginMode2D(scene);
-            drawBackground();
-            drawHole();
-            drawRival();
-            drawMeteors();
-            drawEffects();
-            drawComet();
-            EndMode2D();
-
-            BeginMode2D(ui);
-            if (app.screen == Screen::Intro) {
-                drawIntro();
-            } else {
-                float uiAlpha = app.screen == Screen::Collapse ? std::max(0.0f, 1 - app.collapseT) : 1;
-                if (uiAlpha > 0) {
-                    Tip tip;
-                    drawFloats();
-                    drawTop();
-                    drawBottom(m);
-                    drawAbilities(m, tip);
-                    drawLeftPanel(m, tip);
-                    drawRightPanel(m, tip);
-                    drawBanner();
-                    drawToasts();
-                    if (!app.treeOpen && !tip.title.empty()) drawTooltip(m, tip.title, tip.body, tip.foot, tip.col);
-                    if (app.treeOpen) treeClick = drawTree(m, gClicks > 0);
-                    if (uiAlpha < 1) DrawRectangle(0, 0, (int)VW, (int)VH, Fade(BLACK, (1 - uiAlpha) * 0.3f));
-                }
-                if (app.screen == Screen::Collapse) {
-                    float k = Clamp((app.collapseT - 3.5f) / 1.0f, 0, 1);
-                    DrawRectangle(0, 0, (int)VW, (int)VH, Fade(WHITE, k));
-                }
-            }
-            EndMode2D();
+            break;
         }
         if (app.flash > 0) {
             BeginMode2D(ui);
@@ -1730,12 +1428,7 @@ int main()
         EndScissorMode();
         EndDrawing();
 
-        if (treeClick > 0) {
-            if (!app.game.buyNode((NodeId)treeClick) && !app.game.hasNode((NodeId)treeClick)) {
-                app.audio.play(SFX_DENY);
-                addShake(3);
-            }
-        }
+        if (app.screen == Screen::Tree) updateTree(m, hovered);
 
         if (shotEnv && frame == shotFrame) {
             TakeScreenshot(shotEnv);

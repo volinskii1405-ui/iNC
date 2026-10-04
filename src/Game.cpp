@@ -3,563 +3,698 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace bh {
 
-const std::array<GenDef, kGenCount> kGens = {{
-    {"Космическая пыль",   "Облачко газа и пыли",            10,    0.5},
-    {"Астероид",           "Каменная глыба без имени",       100,   2.5},
-    {"Луна",               "Чей-то потерянный спутник",      1000,  14},
-    {"Планета",            "Целый мир за горизонтом",        1e4,   75},
-    {"Газовый гигант",     "Юпитер был вкусный",             1e5,   380},
-    {"Звезда",             "Спагеттификация светила",        1e6,   2000},
-    {"Нейтронная звезда",  "Сверхплотный деликатес",         1e7,   10500},
-    {"Звёздное скопление", "Тысячи солнц одним глотком",     1e8,   55000},
-    {"Галактика",          "Сто миллиардов звёзд разом",     1e9,   3e5},
-    {"Сверхскопление",     "Паутина галактик",               1e10,  1.5e6},
+double kRingCost = 3.0, kLevelGrowthAdd = 0.5;
+float kGrowthK = 0.45f;  // рост за заход: R = R0·(1 + k·ln(1 + съеденная площадь / R0²))
+
+const std::array<TierDef, kTierCount> kTiers = {{
+    {"Космическая пыль",    4,   1},
+    {"Астероид",            8,   2.5},
+    {"Комета",              11,  6},
+    {"Луна",                17,  14},
+    {"Планета",             27,  32},
+    {"Газовый гигант",      42,  75},
+    {"Звезда",              64,  170},
+    {"Звёздное скопление",  100, 400},
+    {"Галактика",           160, 900},
+    {"Сверхскопление",      260, 2100},
+    {"Ядро Вселенной",      520, 0},
 }};
 
-const std::array<NodeDef, N_COUNT> kNodes = {{
-    {N_ROOT,      "Сингулярность",         "Точка, с которой всё начинается",               0,     N_ROOT,      Branch::Root,      0,  0},
+namespace {
 
-    {G_STRONG,    "Сильная гравитация",    "Клик ×2",                                       30,    N_ROOT,      Branch::Gravity,   1,  0},
-    {G_TIDAL,     "Приливный разрыв",      "10% шанс крита ×8",                             300,   G_STRONG,    Branch::Gravity,   2,  0},
-    {G_COMBO,     "Орбитальное комбо",     "Предел комбо ×1.5 → ×3",                        2500,  G_TIDAL,     Branch::Gravity,   3, -1},
-    {G_JETS,      "Релятивистские джеты",  "Клик +1% дохода в секунду",                     8000,  G_TIDAL,     Branch::Gravity,   3,  1},
-    {G_RESONANCE, "Резонанс орбит",        "Клик в такт кольцу: ×3 и +3 к комбо",           6e4,   G_COMBO,     Branch::Gravity,   4, -1},
-    {G_WAVE,      "Гравитационная волна",  "Каждый 50-й клик: +15 с дохода",                3e5,   G_JETS,      Branch::Gravity,   4,  1},
-    {G_SPAGHETTI, "Спагеттификация",       "Криты: шанс 15%, сила ×15",                     5e6,    G_RESONANCE, Branch::Gravity,   5, -1},
-    {G_KERR,      "Метрика Керра",         "Клик +1.5% дохода/с, комбо до ×3.5",                2e8,    G_WAVE,      Branch::Gravity,   5,  1},
-
-    {A_NEBULA,    "Плотная туманность",    "Пыль и астероиды ×3",                           150,   N_ROOT,      Branch::Accretion, 1,  0},
-    {A_BELT,      "Пояс Койпера",          "Луны и планеты ×3",                             3000,  A_NEBULA,    Branch::Accretion, 2,  0},
-    {A_DISK,      "Аккреционный диск",     "Всё производство ×2",                           3e4,   A_BELT,      Branch::Accretion, 3, -1},
-    {A_GIANTS,    "Красные гиганты",       "Газовые гиганты и звёзды ×3",                   2e5,   A_BELT,      Branch::Accretion, 3,  1},
-    {A_SYNERGY,   "Пищевая цепочка",       "Каждый объект: +1% за штуку предыдущего типа",  3e6,    A_DISK,      Branch::Accretion, 4, -1},
-    {A_FORGE,     "Нейтронная кузня",      "Нейтронные звёзды и скопления ×3",              5e7,    A_GIANTS,    Branch::Accretion, 4,  1},
-    {A_PHOTON,    "Фотонная сфера",        "Всё производство ×2",                           6e8,    A_SYNERGY,   Branch::Accretion, 5, -1},
-    {A_QUASAR,    "Квазар",                "Всё производство ×3",                           1.5e10,  A_FORGE,     Branch::Accretion, 5,  1},
-
-    {C_WANDER,    "Блуждающие звёзды",     "Кометы прилетают вдвое чаще",                   500,   N_ROOT,      Branch::Cosmos,    1,  0},
-    {C_MAGNETAR,  "Магнитар",              "Награда за комету ×2",                          6000,  C_WANDER,    Branch::Cosmos,    2,  0},
-    {C_INTERCEPT, "Перехват",              "Кликай по падающим объектам: +4 с их дохода",  4e4,   C_MAGNETAR,  Branch::Cosmos,    3, -1},
-    {C_SUPERNOVA, "Сверхновая",            "35% комет запускают БЕЗУМИЕ: доход ×7",         5e5,   C_MAGNETAR,  Branch::Cosmos,    3,  1},
-    {C_METEOR,    "Метеоритный дождь",     "Время от времени — дождь метеоров для ловли",   2e6,   C_INTERCEPT, Branch::Cosmos,    4, -1},
-    {C_WORMHOLE,  "Червоточина",           "Все объекты дешевле на 15%",                    1.5e7,  C_SUPERNOVA, Branch::Cosmos,    4,  1},
-    {C_HAWKING,   "Излучение Хокинга",     "+2% дохода за каждый узел дерева",              1e9,    C_METEOR,    Branch::Cosmos,    5, -1},
-    {C_ATTRACTOR, "Великий аттрактор",     "Вехи объектов дают ×2 вместо ×1.5",               6e9,     C_WORMHOLE,  Branch::Cosmos,    5,  1},
-
-    {D_WARP,      "Искривление времени",   "Способность Q: время ×3 на 10 с",               3,     N_ROOT,      Branch::Dark,      1,  0},
-    {D_RUSH,      "Гравитационный рывок",  "Способность W: клики ×3 на 10 с",              5,     D_WARP,      Branch::Dark,      2, -1},
-    {D_PORTAL,    "Белая дыра",            "Способность E: мгновенно +90 с дохода",         6,     D_WARP,      Branch::Dark,      2,  1},
-    {D_ECHO,      "Эхо горизонта",         "Перезарядка способностей −40%",                 8,     D_RUSH,      Branch::Dark,      3, -1},
-    {D_FLOW,      "Тёмный поток",          "+1.5% дохода за каждую добытую тёмную материю",   10,     D_PORTAL,    Branch::Dark,      3,  1},
-    {D_FOAM,      "Квантовая пена",        "10% покупок дают второй объект бесплатно",      12,     D_ECHO,      Branch::Dark,      4, -1},
-    {D_ENERGY,    "Тёмная энергия",        "Галактики и сверхскопления ×3",                 15,    D_FLOW,      Branch::Dark,      4,  1},
-}};
-
-const std::array<AchDef, ACH_COUNT> kAchs = {{
-    {"Первый глоток",        "Поглоти первую порцию материи"},
-    {"Пылесос",              "100 кликов"},
-    {"Ненасытная",           "1000 кликов"},
-    {"Комбо-орбита",         "Разгони комбо до ×2"},
-    {"Критическая масса",    "Первый крит"},
-    {"Охотник за кометами",  "Поймай комету"},
-    {"Кометный магнат",      "Поймай 10 комет"},
-    {"Тысяча",               "Поглоти 1K массы"},
-    {"Миллион",              "Поглоти 1M массы"},
-    {"Миллиард",             "Поглоти 1B массы"},
-    {"Коллекционер",         "Владей объектами всех 10 типов"},
-    {"Садовник",             "Купи 16 узлов дерева"},
-    {"Древо познания",       "Купи все узлы дерева"},
-    {"Безумие!",             "Впади в безумие сверхновой"},
-    {"Идеальный ритм",       "10 идеальных кликов в резонанс"},
-    {"Перехватчик",          "Перехвати 10 падающих объектов"},
-    {"Царь горы",            "Победи чёрную дыру-соперника"},
-    {"Метеоролог",           "Поймай 15 метеоров"},
-    {"Повелитель времени",   "Используй способность"},
-    {"Веха",                 "Собери 25 объектов одного типа"},
-    {"Тёмная сторона",       "Добудь 20 тёмной материи"},
-}};
-
-const std::array<AbilityDef, AB_COUNT> kAbilities = {{
-    {"Искривление времени", "Время ×3 на 10 с",       D_WARP,   90,  10},
-    {"Гравитационный рывок","Клики ×3 на 10 с",       D_RUSH,   60,  10},
-    {"Белая дыра",          "Мгновенно +90 с дохода", D_PORTAL, 120, 0},
-}};
-
-static const char *kRanks[] = {
-    "Микро-дыра", "Чёрная дыра звёздной массы", "Промежуточная чёрная дыра",
-    "Сверхмассивная чёрная дыра", "Ультрамассивная чёрная дыра", "Квазар-монстр", "Пожиратель Вселенной",
+struct RawNode {
+    const char *name, *desc;
+    Stat stat;
+    double value;
+    int param, maxLevel;
+    double cost, growth;
+    const char *parent;
+    Branch branch;
+    int ring;
+    float offset;
 };
-static const double kRankAt[] = {0, 1e3, 1e5, 1e7, 1e9, 1e11, kGoal};
-constexpr int kRankCount = 7;
-constexpr double kResonancePeriod = 1.3;
+
+// Созвездие прокачки. Цены в массе, у ветки «Тёмная материя» — в тёмной материи.
+const RawNode kRaw[] = {
+    {"Сингулярность", "Отсюда растёт всё", ST_SIZE, 0, 0, 1, 0, 1, "", Branch::Root, 0, 0},
+
+    // Гравитация — притяжение, скорость, что можно съесть
+    {"Гравитация", "+15% радиус притяжения", ST_PULL, 0.15, 0, 5, 10, 1.6, "Сингулярность", Branch::Gravity, 1, 0},
+    {"Скорость дрейфа", "+10% скорость дыры", ST_SPEED, 0.10, 0, 5, 25, 1.7, "Гравитация", Branch::Gravity, 2, -12},
+    {"Жадный горизонт", "Можно есть объекты на 4% крупнее", ST_EAT, 0.04, 0, 5, 40, 1.8, "Гравитация", Branch::Gravity, 2, 12},
+    {"Гравитационный рывок", "Пробел или ПКМ — рывок к курсору", ST_DASH, 1, 0, 1, 150, 1, "Скорость дрейфа", Branch::Gravity, 3, -18},
+    {"Сила притяжения", "+25% сила притяжения", ST_PULLSTR, 0.25, 0, 4, 120, 1.8, "Жадный горизонт", Branch::Gravity, 3, 0},
+    {"Приливный захват", "+10% радиус притяжения", ST_PULL, 0.10, 0, 5, 400, 1.8, "Жадный горизонт", Branch::Gravity, 3, 18},
+    {"Короткий рывок", "Перезарядка рывка −15%", ST_DASHCD, 0.15, 0, 4, 600, 2.0, "Гравитационный рывок", Branch::Gravity, 4, -21},
+    {"Инерция", "+8% скорость дыры", ST_SPEED, 0.08, 0, 5, 1500, 1.8, "Сила притяжения", Branch::Gravity, 4, -7},
+    {"Горизонт Керра", "Можно есть объекты на 5% крупнее", ST_EAT, 0.05, 0, 4, 3000, 2.0, "Приливный захват", Branch::Gravity, 4, 7},
+    {"Гравитационный коллапс", "Q — затянуть всё съедобное на экране", ST_COLLAPSE, 1, 0, 1, 5000, 1, "Приливный захват", Branch::Gravity, 4, 21},
+    {"Сверхтекучесть", "+10% скорость дыры", ST_SPEED, 0.10, 0, 5, 3e4, 1.9, "Инерция", Branch::Gravity, 5, -11},
+    {"Мега-коллапс", "Коллапс сильнее на 50%, перезарядка −15%", ST_COLLAPSEPOW, 0.5, 0, 4, 4e4, 2.2, "Гравитационный коллапс", Branch::Gravity, 5, 11},
+    {"Пожиратель", "Можно есть объекты на 5% крупнее", ST_EAT, 0.05, 0, 3, 1e5, 2.5, "Горизонт Керра", Branch::Gravity, 5, 22},
+    {"Сингулярный разгон", "+20% радиус притяжения", ST_PULL, 0.20, 0, 5, 5e5, 2.0, "Сверхтекучесть", Branch::Gravity, 6, -6},
+
+    // Рост — стартовый размер, рост во время захода, спутники
+    {"Масса покоя", "+3 к стартовому радиусу", ST_SIZE, 3, 0, 5, 15, 1.6, "Сингулярность", Branch::Growth, 1, 0},
+    {"Аппетит", "+15% рост от поглощения", ST_GROWTH, 0.15, 0, 5, 40, 1.7, "Масса покоя", Branch::Growth, 2, -12},
+    {"Плотное ядро", "+4 к стартовому радиусу", ST_SIZE, 4, 0, 5, 120, 1.8, "Масса покоя", Branch::Growth, 2, 12},
+    {"Метаболизм", "+15% рост от поглощения", ST_GROWTH, 0.15, 0, 5, 500, 1.8, "Аппетит", Branch::Growth, 3, -18},
+    {"Аккреционный спутник", "Мини-дыра кружит рядом и ест мелочь", ST_SAT, 1, 0, 1, 800, 1, "Аппетит", Branch::Growth, 3, 0},
+    {"Массивный старт", "+8 к стартовому радиусу", ST_SIZE, 8, 0, 5, 2000, 1.9, "Плотное ядро", Branch::Growth, 3, 18},
+    {"Ненасытность", "+20% рост от поглощения", ST_GROWTH, 0.20, 0, 5, 1e4, 1.9, "Метаболизм", Branch::Growth, 4, -21},
+    {"Второй спутник", "+1 спутник", ST_SAT, 1, 0, 1, 1.5e4, 1, "Аккреционный спутник", Branch::Growth, 4, -7},
+    {"Крупные спутники", "+25% размер спутников", ST_SATSIZE, 0.25, 0, 4, 2e4, 2.0, "Аккреционный спутник", Branch::Growth, 4, 7},
+    {"Звёздный старт", "+15 к стартовому радиусу", ST_SIZE, 15, 0, 5, 4e4, 2.0, "Массивный старт", Branch::Growth, 4, 21},
+    {"Обжорство", "+25% рост от поглощения", ST_GROWTH, 0.25, 0, 4, 3e5, 2.0, "Ненасытность", Branch::Growth, 5, -22},
+    {"Третий спутник", "+1 спутник", ST_SAT, 1, 0, 1, 2e5, 1, "Второй спутник", Branch::Growth, 5, -11},
+    {"Галактический старт", "+30 к стартовому радиусу", ST_SIZE, 30, 0, 5, 5e5, 2.0, "Звёздный старт", Branch::Growth, 5, 11},
+    {"Четвёртый спутник", "+1 спутник", ST_SAT, 1, 0, 1, 3e6, 1, "Третий спутник", Branch::Growth, 6, -6},
+
+    // Время — длительность захода, часы, защита
+    {"Стабильный горизонт", "+3 с к заходу", ST_TIME, 3, 0, 5, 12, 1.6, "Сингулярность", Branch::Time, 1, 0},
+    {"Квантовые часы", "Чаще попадаются часы (+2 с)", ST_CLOCK, 0.006, 0, 5, 60, 1.8, "Стабильный горизонт", Branch::Time, 2, -12},
+    {"Щит Хокинга", "−15% урона от опасностей", ST_ARMOR, 0.15, 0, 5, 200, 1.8, "Стабильный горизонт", Branch::Time, 2, 12},
+    {"Застывшее время", "+3 с к заходу", ST_TIME, 3, 0, 5, 800, 1.8, "Квантовые часы", Branch::Time, 3, -18},
+    {"Часовщик", "Часы дают на 1 с больше", ST_CLOCKVAL, 1, 0, 3, 1500, 2.0, "Квантовые часы", Branch::Time, 3, 0},
+    {"Отражение", "−10% урона от опасностей", ST_ARMOR, 0.10, 0, 3, 2500, 2.0, "Щит Хокинга", Branch::Time, 3, 18},
+    {"Замедление", "+4 с к заходу", ST_TIME, 4, 0, 5, 1.2e4, 1.9, "Застывшее время", Branch::Time, 4, -21},
+    {"Пожиратель времени", "Звезда и крупнее: +0.5 с", ST_TIMEFEED, 0.5, 0, 3, 2e4, 2.0, "Часовщик", Branch::Time, 4, -7},
+    {"Антиматерия на ужин", "Антиматерию можно съесть — она ценная", ST_ANTIEAT, 1, 0, 1, 3e4, 1, "Отражение", Branch::Time, 4, 7},
+    {"Петля времени", "+25% шанс второй жизни: +8 с в конце", ST_LOOP, 0.25, 0, 3, 3e5, 2.2, "Отражение", Branch::Time, 4, 21},
+    {"Вечность", "+5 с к заходу", ST_TIME, 5, 0, 5, 2e5, 2.0, "Замедление", Branch::Time, 5, -11},
+    {"Остановка времени", "+8 с к заходу", ST_TIME, 8, 0, 3, 3e6, 2.5, "Вечность", Branch::Time, 6, -6},
+
+    // Богатство — ценность добычи
+    {"Плотная материя", "+25% масса от всего", ST_VALUE, 0.25, 0, 5, 15, 1.6, "Сингулярность", Branch::Wealth, 1, 0},
+    {"Каменоломня", "+50% масса астероидов и комет", ST_TIERVAL, 0.5, 1, 5, 50, 1.7, "Плотная материя", Branch::Wealth, 2, -12},
+    {"Критическая масса", "+4% шанс крита (×5 массы)", ST_CRIT, 0.04, 0, 5, 150, 1.8, "Плотная материя", Branch::Wealth, 2, 12},
+    {"Лунные копи", "+50% масса лун и планет", ST_TIERVAL, 0.5, 3, 5, 600, 1.8, "Каменоломня", Branch::Wealth, 3, -18},
+    {"Пиршество", "Предел комбо +0.5", ST_COMBO, 0.5, 0, 5, 900, 1.8, "Каменоломня", Branch::Wealth, 3, 0},
+    {"Сверхкрит", "Криты +2× сильнее", ST_CRITMULT, 2, 0, 4, 2000, 2.0, "Критическая масса", Branch::Wealth, 3, 18},
+    {"Звёздная кузня", "+50% масса гигантов и звёзд", ST_TIERVAL, 0.5, 5, 5, 1e4, 1.9, "Лунные копи", Branch::Wealth, 4, -21},
+    {"Сложный процент", "+2% к накоплениям после захода", ST_INTEREST, 0.02, 0, 5, 1.5e4, 2.0, "Пиршество", Branch::Wealth, 4, -7},
+    {"Долгий пир", "Окно комбо +0.2 с", ST_COMBOWIN, 0.2, 0, 3, 2e4, 2.0, "Пиршество", Branch::Wealth, 4, 7},
+    {"Золотая лихорадка", "+40% масса от всего", ST_VALUE, 0.40, 0, 5, 5e4, 2.0, "Сверхкрит", Branch::Wealth, 4, 21},
+    {"Галактические богатства", "+60% масса скоплений и галактик", ST_TIERVAL, 0.6, 7, 5, 2e5, 2.0, "Звёздная кузня", Branch::Wealth, 5, -11},
+    {"Квазарный блеск", "+50% масса от всего", ST_VALUE, 0.50, 0, 5, 8e5, 2.0, "Золотая лихорадка", Branch::Wealth, 5, 11},
+    {"Нобелевка Хокинга", "Масса от всего ×2", ST_VALUEX, 2, 0, 3, 5e6, 3.0, "Квазарный блеск", Branch::Wealth, 6, 6},
+
+    // Космос — что встречается в космосе
+    {"Плотная туманность", "+20% объектов вокруг", ST_DENSITY, 0.20, 0, 5, 20, 1.6, "Сингулярность", Branch::Cosmos, 1, 0},
+    {"Кометный поток", "Чаще золотые кометы (×20 массы)", ST_GOLD, 0.004, 0, 3, 100, 2.0, "Плотная туманность", Branch::Cosmos, 2, -12},
+    {"Богатый сектор", "Крупные объекты попадаются чаще", ST_RICH, 0.06, 0, 5, 250, 1.9, "Плотная туманность", Branch::Cosmos, 2, 12},
+    {"Цепная реакция", "+20% шанс: съеденная звезда взрывается в еду", ST_CHAIN, 0.20, 0, 3, 1500, 2.0, "Кометный поток", Branch::Cosmos, 3, -18},
+    {"Звёздные ясли", "+20% объектов вокруг", ST_DENSITY, 0.20, 0, 5, 2000, 1.9, "Кометный поток", Branch::Cosmos, 3, 0},
+    {"Охота на соперников", "Дыры-соперники дают ×2 массы", ST_RIVAL, 1.0, 0, 3, 4000, 2.2, "Богатый сектор", Branch::Cosmos, 3, 18},
+    {"Сверхновые", "+15% шанс цепной реакции", ST_CHAIN, 0.15, 0, 3, 2e4, 2.2, "Цепная реакция", Branch::Cosmos, 4, -21},
+    {"Метеоритные рои", "Появляются рои астероидов", ST_SWARM, 1, 0, 3, 2.5e4, 2.0, "Звёздные ясли", Branch::Cosmos, 4, -7},
+    {"Магнитное поле", "+50% дальность сбора часов и материи", ST_MAGNET, 0.5, 0, 3, 3e4, 2.0, "Звёздные ясли", Branch::Cosmos, 4, 7},
+    {"Богатая Вселенная", "Крупные объекты попадаются чаще", ST_RICH, 0.06, 0, 5, 8e4, 2.0, "Охота на соперников", Branch::Cosmos, 4, 21},
+    {"Плотная Вселенная", "+25% объектов вокруг", ST_DENSITY, 0.25, 0, 5, 4e5, 2.0, "Метеоритные рои", Branch::Cosmos, 5, -11},
+    {"Космическая паутина", "Крупные объекты попадаются чаще", ST_RICH, 0.08, 0, 3, 1e6, 2.5, "Богатая Вселенная", Branch::Cosmos, 5, 11},
+    {"Ядро Вселенной", "В космосе появится Ядро Вселенной. Съешь его!", ST_FINAL, 1, 0, 1, 2.5e7, 1, "Космическая паутина", Branch::Cosmos, 6, 6},
+
+    // Тёмная материя — особые бонусы за вторую валюту
+    {"Тёмный магнит", "Тёмная материя попадается чаще", ST_DARK, 0.004, 0, 3, 2, 1.5, "Сингулярность", Branch::Dark, 1, 0},
+    {"Тёмное ускорение", "+20% скорость дыры", ST_SPEED, 0.20, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, -12},
+    {"Тёмный рост", "+30% рост от поглощения", ST_GROWTH, 0.30, 0, 3, 3, 1.6, "Тёмный магнит", Branch::Dark, 2, 12},
+    {"Фантомный рывок", "Во время рывка опасности не ранят", ST_PHANTOM, 1, 0, 1, 6, 1, "Тёмное ускорение", Branch::Dark, 3, -18},
+    {"Тёмная корона", "+5 с к заходу", ST_TIME, 5, 0, 3, 5, 1.7, "Тёмное ускорение", Branch::Dark, 3, 0},
+    {"Тёмное богатство", "Масса от всего ×1.5", ST_VALUEX, 1.5, 0, 3, 5, 1.8, "Тёмный рост", Branch::Dark, 3, 18},
+    {"Тёмный спутник", "+1 спутник", ST_SAT, 1, 0, 1, 10, 1, "Тёмная корона", Branch::Dark, 4, -7},
+    {"Тёмный горизонт", "Можно есть объекты на 8% крупнее", ST_EAT, 0.08, 0, 2, 12, 1.8, "Тёмное богатство", Branch::Dark, 4, 7},
+    {"Тёмная энергия", "Масса от всего ×2", ST_VALUEX, 2, 0, 2, 20, 2.0, "Тёмный горизонт", Branch::Dark, 5, 0},
+};
+
+std::vector<NodeDef> buildNodes()
+{
+    std::vector<NodeDef> out;
+    for (const RawNode &r : kRaw) {
+        int parent = 0;
+        for (size_t i = 0; i < out.size(); i++)
+            if (std::strcmp(out[i].name, r.parent) == 0) parent = (int)i;
+        out.push_back({r.name, r.desc, r.stat, r.value, r.param, r.maxLevel, r.cost, r.growth, parent, r.branch, r.ring, r.offset});
+    }
+    return out;
+}
+
+}  // namespace
+
+const std::vector<NodeDef> kNodes = buildNodes();
 
 Game::Game(uint32_t seed) { reset(seed); }
 
 void Game::reset(uint32_t seed)
 {
-    mass = total = time = 0;
-    dark = darkTotal = 0;
-    clicks = 0;
-    combo = 0;
-    comboTimer = 0;
-    gens.fill(0);
-    frenzyLeft = cometLeft = 0;
-    cometsCaught = crits = perfects = intercepts = meteorsCaught = 0;
-    flareGen = -1;
-    flareLeft = 0;
-    rivalActive = false;
-    rivalHp = rivalMaxHp = rivalStolen = rivalLeft = 0;
-    rivalsKilled = 0;
-    meteorLeft = 0;
-    abilityCd.fill(0);
-    abilityLeft.fill(0);
-    won = false;
-    nodes_.fill(false);
-    nodes_[N_ROOT] = true;
-    achs_.fill(false);
-    milestoneSeen_.fill(0);
-    lastRank_ = 0;
-    events.clear();
     rng_.seed(seed);
-    cometTimer = 20 + rnd() * 10;
-    flareTimer = 70 + rnd() * 20;
-    rivalTimer = 170 + rnd() * 30;
-    meteorTimer = 30;
+    levels_.assign(kNodes.size(), 0);
+    levels_[0] = 1;
+    phase = Phase::Tree;
+    mass = dark = total = playTime = 0;
+    runs = 0;
+    bestR = 0;
+    objs.clear();
+    events.clear();
+    recompute();
 }
 
-double Game::nextCometDelay()
+void Game::recompute()
 {
-    double d = 40 + rnd() * 25;
-    return hasNode(C_WANDER) ? d * 0.5 : d;
+    Stats s;
+    double eatBonus = 0;
+    for (size_t i = 1; i < kNodes.size(); i++) {
+        int l = levels_[i];
+        if (!l) continue;
+        const NodeDef &n = kNodes[i];
+        double v = n.value * l;
+        switch (n.stat) {
+        case ST_SIZE: s.size += v; break;
+        case ST_SPEED: s.speed += v; break;
+        case ST_PULL: s.pull += v; break;
+        case ST_PULLSTR: s.pullStr += v; break;
+        case ST_EAT: eatBonus += v; break;
+        case ST_GROWTH: s.growth += v; break;
+        case ST_TIME: s.time += v; break;
+        case ST_VALUE: s.value += v; break;
+        case ST_VALUEX: break;  // ниже, мультипликативно
+        case ST_TIERVAL:
+            for (int t = n.param; t < n.param + 2 && t < kTierCount; t++) s.tierVal[t] += v;
+            if (n.param == 7) s.tierVal[9] += v;
+            break;
+        case ST_DENSITY: s.density += v; break;
+        case ST_RICH: s.rich += v; break;
+        case ST_COMBO: s.comboMax += v; break;
+        case ST_COMBOWIN: s.comboWin += v; break;
+        case ST_CRIT: s.crit += v; break;
+        case ST_CRITMULT: s.critMult += v; break;
+        case ST_CLOCK: s.clock += v; break;
+        case ST_CLOCKVAL: s.clockVal += v; break;
+        case ST_ARMOR: s.armor += v; break;
+        case ST_GOLD: s.gold += v; break;
+        case ST_CHAIN: s.chain += v; break;
+        case ST_SAT: s.sats += l; break;
+        case ST_SATSIZE: s.satSize += v; break;
+        case ST_DASH: s.dash = true; break;
+        case ST_DASHCD: s.dashCd *= std::pow(1 - n.value, l); break;
+        case ST_COLLAPSE: s.collapse = true; break;
+        case ST_COLLAPSEPOW: s.collapsePow += v; s.collapseCd *= std::pow(0.85, l); break;
+        case ST_DARK: s.dark += v; break;
+        case ST_INTEREST: s.interest += v; break;
+        case ST_MAGNET: s.magnet += v; break;
+        case ST_TIMEFEED: s.timeFeed += v; break;
+        case ST_ANTIEAT: s.antiEat = true; break;
+        case ST_LOOP: s.loop += v; break;
+        case ST_RIVAL: s.rival += v; break;
+        case ST_SWARM: s.swarm += l; break;
+        case ST_PHANTOM: s.phantom = true; break;
+        case ST_FINAL: s.final = true; break;
+        }
+        if (n.stat == ST_VALUEX) s.value *= std::pow(n.value, l);
+    }
+    s.eat += eatBonus;
+    s.armor = std::min(s.armor, 0.8);
+    st_ = s;
 }
 
-int Game::milestoneLevel(int i) const
+bool Game::nodeVisible(int i) const { return i == 0 || levels_[kNodes[i].parent] > 0; }
+
+bool Game::nodeAvailable(int i) const { return i > 0 && nodeVisible(i) && levels_[i] < kNodes[i].maxLevel; }
+
+double Game::nodeCost(int i) const
 {
-    int l = 0;
-    for (int m : kMilestones)
-        if (gens[i] >= m) l++;
-    return l;
-}
-
-double Game::genMult(int i) const
-{
-    double m = 1;
-    if ((i == 0 || i == 1) && hasNode(A_NEBULA)) m *= 3;
-    if ((i == 2 || i == 3) && hasNode(A_BELT)) m *= 3;
-    if ((i == 4 || i == 5) && hasNode(A_GIANTS)) m *= 3;
-    if ((i == 6 || i == 7) && hasNode(A_FORGE)) m *= 3;
-    if ((i == 8 || i == 9) && hasNode(D_ENERGY)) m *= 3;
-    if (i > 0 && hasNode(A_SYNERGY)) m *= 1 + 0.01 * gens[i - 1];
-    m *= std::pow(hasNode(C_ATTRACTOR) ? 2.0 : 1.5, milestoneLevel(i));
-    if (i == flareGen && flareLeft > 0) m *= 5;
-    return m;
-}
-
-double Game::genIncome(int i) const
-{
-    double s = gens[i] * kGens[i].rate * genMult(i);
-    if (hasNode(A_DISK)) s *= 2;
-    if (hasNode(A_PHOTON)) s *= 2;
-    if (hasNode(A_QUASAR)) s *= 3;
-    if (hasNode(C_HAWKING)) s *= 1 + 0.02 * nodesOwned();
-    if (hasNode(D_FLOW)) s *= 1 + 0.015 * darkTotal;
-    s *= 1 + 0.02 * achCount();
-    if (frenzyLeft > 0) s *= 7;
-    return s;
-}
-
-double Game::income() const
-{
-    double s = 0;
-    for (int i = 0; i < kGenCount; i++) s += genIncome(i);
-    return s;
-}
-
-double Game::baseClick() const
-{
-    double v = hasNode(G_STRONG) ? 2 : 1;
-    if (hasNode(G_JETS)) v += income() * 0.01;
-    if (hasNode(G_KERR)) v += income() * 0.015;
-    if (abilityLeft[AB_RUSH] > 0) v *= 3;
-    return v;
-}
-
-double Game::comboMax() const { return hasNode(G_KERR) ? 3.5 : hasNode(G_COMBO) ? 3.0 : 1.5; }
-
-double Game::comboMult() const { return std::min(comboMax(), 1.0 + combo * 0.04); }
-
-double Game::critChance() const
-{
-    if (hasNode(G_SPAGHETTI)) return 0.15;
-    if (hasNode(G_TIDAL)) return 0.10;
-    return 0;
-}
-
-double Game::critMult() const { return hasNode(G_SPAGHETTI) ? 15 : 8; }
-
-double Game::genCost(int i) const { return genCostN(i, 1); }
-
-double Game::genCostN(int i, int n) const
-{
-    double first = kGens[i].baseCost * std::pow(kCostGrowth, gens[i]);
-    double c = first * (std::pow(kCostGrowth, n) - 1) / (kCostGrowth - 1);
-    if (hasNode(C_WORMHOLE)) c *= 0.85;
+    const NodeDef &n = kNodes[i];
+    if (n.branch == Branch::Dark) return std::floor(n.cost * std::pow(n.growth, levels_[i]));
+    // Цены в массе дорожают быстрее у дальних колец созвездия.
+    double c = n.cost * std::pow(kRingCost, std::max(0, n.ring - 1)) * std::pow(n.growth + kLevelGrowthAdd, levels_[i]);
     return std::floor(c);
 }
 
-int Game::genAffordable(int i) const
+bool Game::canBuy(int i) const
 {
-    double first = genCost(i);
-    if (mass < first) return 0;
-    int n = (int)std::floor(std::log(mass / first * (kCostGrowth - 1) + 1) / std::log(kCostGrowth));
-    while (n > 1 && genCostN(i, n) > mass) n--;
-    return std::max(n, 1);
+    if (!nodeAvailable(i)) return false;
+    return kNodes[i].branch == Branch::Dark ? dark >= nodeCost(i) : mass >= nodeCost(i);
 }
 
-bool Game::genVisible(int i) const
+bool Game::buyNode(int i)
 {
-    if (i == 0) return true;
-    return gens[i - 1] > 0 || total >= kGens[i].baseCost * 0.5;
+    if (phase != Phase::Tree || !canBuy(i)) return false;
+    double c = nodeCost(i);
+    if (kNodes[i].branch == Branch::Dark) dark -= c;
+    else mass -= c;
+    levels_[i]++;
+    recompute();
+    events.push_back({EvType::NodeBuy, c, i});
+    return true;
 }
 
-bool Game::nodeAvailable(NodeId id) const { return !nodes_[id] && nodes_[kNodes[id].parent]; }
-
-bool Game::canAffordNode(NodeId id) const
-{
-    if (!nodeAvailable(id)) return false;
-    return kNodes[id].branch == Branch::Dark ? dark >= kNodes[id].cost : mass >= kNodes[id].cost;
-}
-
-int Game::nodesOwned() const
+int Game::affordableCount() const
 {
     int n = 0;
-    for (int i = 1; i < N_COUNT; i++) n += nodes_[i];
+    for (size_t i = 1; i < kNodes.size(); i++) n += canBuy((int)i);
     return n;
 }
 
-int Game::achCount() const
+// ---------- заход ----------
+
+float Game::zoomFor(float r) const
 {
-    int n = 0;
-    for (bool a : achs_) n += a;
-    return n;
+    float screenR = 26 + 14 * std::log(1 + r / 15.0f);
+    return screenR / r;
 }
 
-int Game::rank() const
+float Game::viewRadius() const { return kScreenHalfDiag / zoomFor(R); }
+
+bool Game::kindOnField(Kind k) const
 {
-    int r = 0;
-    for (int i = 0; i < kRankCount; i++)
-        if (total >= kRankAt[i]) r = i;
-    return r;
+    for (auto &o : objs)
+        if (o.kind == k && !o.dead) return true;
+    return false;
 }
 
-const char *Game::rankName() const { return kRanks[rank()]; }
-
-double Game::horizon() const { return std::clamp(std::log10(total + 1) / std::log10(kGoal), 0.0, 1.0); }
-
-double Game::resonancePhase() const { return std::fmod(time, kResonancePeriod) / kResonancePeriod; }
-
-bool Game::resonanceWindow() const
+bool Game::canEat(const Obj &o) const
 {
-    double p = resonancePhase();
-    return hasNode(G_RESONANCE) && (p > 0.80 || p < 0.04);
-}
-
-double Game::abilityCooldown(Ability a) const
-{
-    return kAbilities[a].cooldown * (hasNode(D_ECHO) ? 0.6 : 1.0);
-}
-
-void Game::gainDark(double d, const char *)
-{
-    dark += d;
-    darkTotal += d;
-    events.push_back({EvType::Dark, d});
-}
-
-void Game::update(double realDt)
-{
-    if (won) return;
-    // Способности тикают в реальном времени, всё остальное — с учётом искривления.
-    for (int a = 0; a < AB_COUNT; a++) {
-        abilityCd[a] = std::max(0.0, abilityCd[a] - realDt);
-        abilityLeft[a] = std::max(0.0, abilityLeft[a] - realDt);
+    switch (o.kind) {
+    case K_CLOCK: case K_DARK: return true;
+    case K_ANTI: return st_.antiEat && o.size < R * st_.eat;
+    case K_PULSAR: return o.size < R * st_.eat * 0.5f;  // пульсар плотный: нужна дыра вдвое крупнее
+    default: return o.size < R * st_.eat;
     }
-    double dt = realDt * timeScale();
-    time += dt;
-    gain(income() * dt);
+}
 
+double Game::tierValue(int t) const { return kTiers[t].value * st_.tierVal[t] * st_.value; }
+
+int Game::pickTier()
+{
+    // Размеры вокруг текущего радиуса дыры: и еда, и препятствия покрупнее.
+    float center = std::log(R * (0.55f + (float)st_.rich));
+    double w[kTierCount - 1], sum = 0;
+    for (int t = 0; t < kTierCount - 1; t++) {
+        float d = std::log(kTiers[t].size) - center;
+        w[t] = std::exp(-d * d / (2 * 0.85f * 0.85f)) + (t < 2 ? 0.15 : 0);
+        if (kTiers[t].size > R * 4) w[t] = 0;  // совсем гигантов не показываем
+        sum += w[t];
+    }
+    double x = rnd() * sum;
+    for (int t = 0; t < kTierCount - 1; t++) {
+        x -= w[t];
+        if (x <= 0) return t;
+    }
+    return 0;
+}
+
+Obj Game::makeObj(int tier, Vec p)
+{
+    Obj o;
+    o.kind = K_TIER;
+    o.tier = tier;
+    o.p = p;
+    o.size = kTiers[tier].size * rnd(0.85f, 1.15f);
+    float a = rnd(0, 6.2832f), sp = rnd(2, 10) * (1 + o.size * 0.02f);
+    if (tier == 2) sp *= 8;  // кометы летят быстро
+    o.v = {std::cos(a) * sp, std::sin(a) * sp};
+    o.rot = rnd(0, 360);
+    o.spin = rnd(-40, 40);
+    o.id = nextId_++;
+    return o;
+}
+
+void Game::spawnAround(bool initial)
+{
+    float vr = viewRadius();
+    float area = vr * vr;
+    // Сколько объектов держать вокруг: плотность в «экранах», не в мировых единицах.
+    int target = (int)(90 * st_.density);
+    int count = 0;
+    for (auto &o : objs)
+        if (!o.dead) count++;
+    int need = target - count;
+    (void)area;
+    for (int k = 0; k < need; k++) {
+        float a = rnd(0, 6.2832f);
+        float d = initial ? rnd(R * 3, vr * 1.25f) : rnd(vr * 1.05f, vr * 1.35f);
+        Vec p = {pos.x + std::cos(a) * d, pos.y + std::sin(a) * d};
+        float roll = rnd();
+        Obj o;
+        if (roll < st_.clock && clockCd_ <= 0 && !kindOnField(K_CLOCK)) {
+            clockCd_ = 4;
+            o = makeObj(0, p);
+            o.kind = K_CLOCK;
+            o.size = std::max(6.0f, R * 0.35f);
+        } else if (roll < st_.clock + st_.dark && darkCd_ <= 0 && !kindOnField(K_DARK)) {
+            darkCd_ = 5;
+            o = makeObj(0, p);
+            o.kind = K_DARK;
+            o.size = std::max(6.0f, R * 0.35f);
+        } else if (roll < st_.clock + st_.dark + st_.gold && goldCd_ <= 0 && !kindOnField(K_GOLD)) {
+            goldCd_ = 8;
+            o = makeObj(0, p);
+            o.kind = K_GOLD;
+            o.size = R * 0.4f;
+            float sa = rnd(0, 6.2832f);
+            float sp = 260 / zoomFor(R);
+            o.v = {std::cos(sa) * sp, std::sin(sa) * sp};
+        } else if (runs >= 2 && roll < st_.clock + st_.dark + st_.gold + 0.035f) {
+            o = makeObj(0, p);
+            o.kind = K_ANTI;
+            o.size = R * rnd(0.35f, 0.7f);
+        } else if (runs >= 4 && roll < st_.clock + st_.dark + st_.gold + 0.05f) {
+            o = makeObj(0, p);
+            o.kind = K_PULSAR;
+            o.size = R * rnd(0.4f, 1.2f);
+            o.v = {0, 0};
+            o.beam = rnd(0, 6.2832f);
+        } else if (runs >= 3 && roll < st_.clock + st_.dark + st_.gold + 0.065f) {
+            o = makeObj(0, p);
+            o.kind = K_RIVAL;
+            o.size = R * rnd(0.5f, 1.5f);
+        } else if (st_.swarm > 0 && roll < st_.clock + st_.dark + st_.gold + 0.065f + 0.02f * st_.swarm) {
+            // рой: несколько объектов помельче кучкой
+            int tier = std::max(0, pickTier() - 1);
+            for (int s = 0; s < 6; s++) {
+                Obj f = makeObj(tier, {p.x + rnd(-1, 1) * R * 2, p.y + rnd(-1, 1) * R * 2});
+                objs.push_back(f);
+            }
+            continue;
+        } else {
+            o = makeObj(pickTier(), p);
+        }
+        objs.push_back(o);
+    }
+}
+
+void Game::startRun()
+{
+    if (phase != Phase::Tree) return;
+    phase = Phase::Run;
+    runs++;
+    pos = {0, 0};
+    vel = {0, 0};
+    R = (float)st_.size;
+    timeLeft = st_.time;
+    runTime = 0;
+    runMass = 0;
+    runEaten = 0;
+    biggestTier = -1;
+    combo = 0;
+    comboTimer = 0;
+    dashCd = dashLeft = collapseCd = collapseLeft = 0;
+    loopUsed = false;
+    hurtFlash = 0;
+    runArea_ = 0;
+    timeGained_ = 0;
+    clockCd_ = 3;
+    darkCd_ = 2;
+    goldCd_ = 6;
+    objs.clear();
+    spawnAround(true);
+    if (st_.final) {
+        // Ядро Вселенной ждёт неподалёку
+        Obj core = makeObj(10, {R * 40, -R * 25});
+        core.size = kTiers[10].size;
+        core.v = {0, 0};
+        core.spin = 6;
+        objs.push_back(core);
+    }
+    events.push_back({EvType::RunStart});
+}
+
+void Game::addTime(double s)
+{
+    double room = st_.time - timeGained_;
+    double add = std::max(0.0, std::min(s, room));
+    timeGained_ += add;
+    timeLeft += add;
+}
+
+void Game::hurt(double seconds, Vec at)
+{
+    if (st_.phantom && dashLeft > 0) return;
+    double d = seconds * (1 - st_.armor);
+    timeLeft -= d;
+    hurtFlash = 1;
+    events.push_back({EvType::Hurt, d, 0, at});
+}
+
+void Game::eat(Obj &target, bool bySat)
+{
+    target.dead = true;
+    const Obj o = target;  // копия: ниже objs может вырасти и ссылка станет недействительной
+    Event e{EvType::Eat, 0, o.tier, o.p};
+    e.size = o.size;
+    switch (o.kind) {
+    case K_CLOCK: {
+        double add = st_.clockVal;
+        addTime(add);
+        events.push_back({EvType::Clock, add, 0, o.p});
+        return;
+    }
+    case K_DARK:
+        dark += 1;
+        events.push_back({EvType::Dark, 1, 0, o.p});
+        return;
+    default: break;
+    }
+
+    double v;
+    int growthTier = o.tier;
+    if (o.kind == K_GOLD) {
+        // золотая комета: ×20 к лучшему из того, что сейчас по зубам
+        int t = 0;
+        for (int k = 0; k < kTierCount - 1; k++)
+            if (kTiers[k].size < R * st_.eat) t = k;
+        v = tierValue(t) * 20;
+        events.push_back({EvType::Gold, v, 0, o.p});
+    } else if (o.kind == K_ANTI) {
+        int t = 0;
+        for (int k = 0; k < kTierCount - 1; k++)
+            if (kTiers[k].size < o.size) t = k;
+        v = tierValue(t) * 8;
+    } else if (o.kind == K_PULSAR) {
+        v = tierValue(6) * 3;
+    } else if (o.kind == K_RIVAL) {
+        v = 40 * std::pow(o.size, 1.6) * st_.value * st_.rival;
+        events.push_back({EvType::RivalEaten, v, 0, o.p});
+    } else if (o.tier == 10) {
+        phase = Phase::Won;
+        events.push_back({EvType::Win, 0, 10, o.p});
+        return;
+    } else {
+        v = tierValue(o.tier);
+    }
+
+    if (!bySat) {
+        combo++;
+        comboTimer = st_.comboWin;
+    }
+    double cm = std::min(st_.comboMax, 1.0 + combo * 0.03);
+    v *= cm;
+    if (rnd() < st_.crit) {
+        v *= st_.critMult;
+        e.crit = true;
+    }
+    mass += v;
+    total += v;
+    runMass += v;
+    runEaten++;
+    if (o.kind == K_TIER) biggestTier = std::max(biggestTier, o.tier);
+    e.value = v;
+    e.index = o.kind == K_TIER ? growthTier : -1 - (int)o.kind;
+    if (bySat) e.type = EvType::SatEat;
+    events.push_back(e);
+
+    // Рост: площадь съеденного добавляется к площади горизонта.
+    if (!bySat) {
+        runArea_ += o.size * o.size * (float)st_.growth;
+        float R0 = (float)st_.size;
+        R = R0 * (1 + kGrowthK * std::log(1 + runArea_ / (R0 * R0)));
+        bestR = std::max(bestR, (double)R);
+    }
+
+    // Крупная добыча (не меньше половины дыры): время и цепная реакция.
+    if (o.kind == K_TIER && o.size >= R * 0.45f && !bySat) {
+        if (st_.timeFeed > 0) addTime(st_.timeFeed);
+        if (o.tier >= 3 && rnd() < st_.chain) {
+            // Цепная реакция: звезда взрывается и разбрасывает еду
+            int ft = std::max(0, o.tier - 1);
+            for (int k = 0; k < 9; k++) {
+                float a = k * 0.698f + rnd(0, 0.4f);
+                Obj f = makeObj(ft, {o.p.x + std::cos(a) * o.size * 1.5f, o.p.y + std::sin(a) * o.size * 1.5f});
+                f.v = {std::cos(a) * o.size * 2, std::sin(a) * o.size * 2};
+                objs.push_back(f);
+            }
+            events.push_back({EvType::Chain, 0, o.tier, o.p});
+        }
+    }
+}
+
+void Game::update(double dt, Vec target, bool wantDash, bool wantCollapse)
+{
+    if (phase != Phase::Run) return;
+    runTime += dt;
+    playTime += dt;
+    timeLeft -= dt;
+    hurtFlash = std::max(0.0, hurtFlash - dt * 3);
     if (comboTimer > 0) {
-        comboTimer -= realDt;
+        comboTimer -= dt;
         if (comboTimer <= 0) combo = 0;
     }
-    if (frenzyLeft > 0) frenzyLeft = std::max(0.0, frenzyLeft - dt);
-    tickEvents(dt);
-    // Соперник живёт в реальном времени: искривление не должно его ускорять.
-    if (rivalActive) {
-        rivalLeft -= realDt;
-        if (rivalLeft <= 0) {
-            rivalActive = false;
-            events.push_back({EvType::RivalLeft, rivalStolen});
-        }
-    }
+    dashCd = std::max(0.0, dashCd - dt);
+    dashLeft = std::max(0.0, dashLeft - dt);
+    collapseCd = std::max(0.0, collapseCd - dt);
+    collapseLeft = std::max(0.0, collapseLeft - dt);
 
-    int r = rank();
-    if (r > lastRank_) {
-        lastRank_ = r;
-        events.push_back({EvType::Rank, 0, r});
-        gainDark(2, "rank");
-    }
-    for (int i = 0; i < kGenCount; i++) {
-        int l = milestoneLevel(i);
-        if (l > milestoneSeen_[i]) {
-            milestoneSeen_[i] = l;
-            events.push_back({EvType::Milestone, (double)kMilestones[l - 1], i});
-        }
-    }
-    checkAchievements();
-}
+    float zoom = zoomFor(R);
+    float speed = 300 * (float)st_.speed / zoom;  // постоянная скорость в пикселях экрана
 
-void Game::tickEvents(double dt)
-{
-    // Кометы
-    if (cometLeft > 0) {
-        cometLeft = std::max(0.0, cometLeft - dt);
-    } else {
-        cometTimer -= dt;
-        if (cometTimer <= 0) {
-            cometLeft = cometTotalTime;
-            cometTimer = nextCometDelay();
-            events.push_back({EvType::CometSpawn});
-        }
+    // Движение к курсору
+    Vec d = {target.x - pos.x, target.y - pos.y};
+    float dist = std::sqrt(d.x * d.x + d.y * d.y);
+    Vec want = {0, 0};
+    if (dist > 1) {
+        float k = std::min(1.0f, dist / (R * 3)) * speed / dist;
+        want = {d.x * k, d.y * k};
     }
+    if (wantDash && st_.dash && dashCd <= 0 && dist > 1) {
+        dashCd = st_.dashCd;
+        dashLeft = 0.3;
+        vel = {d.x / dist * speed * 4, d.y / dist * speed * 4};
+        events.push_back({EvType::Dash, 0, 0, pos});
+    }
+    if (wantCollapse && st_.collapse && collapseCd <= 0) {
+        collapseCd = st_.collapseCd;
+        collapseLeft = 1.6;
+        events.push_back({EvType::Collapse, 0, 0, pos});
+    }
+    float blend = dashLeft > 0 ? 0.02f : std::min(1.0f, (float)dt * 6);
+    vel.x += (want.x - vel.x) * blend;
+    vel.y += (want.y - vel.y) * blend;
+    pos.x += vel.x * (float)dt;
+    pos.y += vel.y * (float)dt;
 
-    // Звёздная вспышка: случайный тип объектов ×5
-    if (flareLeft > 0) {
-        flareLeft = std::max(0.0, flareLeft - dt);
-    } else {
-        flareTimer -= dt;
-        if (flareTimer <= 0) {
-            flareTimer = 60 + rnd() * 30;
-            std::vector<int> owned;
-            for (int i = 0; i < kGenCount; i++)
-                if (gens[i] > 0) owned.push_back(i);
-            if (!owned.empty()) {
-                // чаще выпадают старшие объекты — так вспышка ощутима
-                int k = (int)owned.size();
-                int pick = owned[std::min(k - 1, (int)(std::sqrt(rnd()) * k))];
-                flareGen = pick;
-                flareLeft = 20;
-                events.push_back({EvType::Flare, 20, pick});
+    // Объекты
+    float pullR = R * 2.4f * (float)st_.pull;
+    float vr = viewRadius();
+    float pickR = R * 3.0f * (float)st_.magnet;
+    satAngle += (float)dt * 2.2f;
+    float satR = R * 0.22f * (float)st_.satSize;
+
+    for (size_t i = 0; i < objs.size(); i++) {
+        Obj &o = objs[i];
+        if (o.dead) continue;
+        float dx = pos.x - o.p.x, dy = pos.y - o.p.y;
+        float dd = std::sqrt(dx * dx + dy * dy) + 0.001f;
+        if (dd > vr * 1.7f && o.tier != 10) { o.dead = true; continue; }
+        bool edible = canEat(o);
+        float range = (o.kind == K_CLOCK || o.kind == K_DARK) ? std::max(pullR, pickR) : pullR;
+        if (collapseLeft > 0 && edible && dd < vr) range = vr;
+        o.pulled = edible && dd < range;
+        if (o.pulled) {
+            float strength = (dd < pullR ? 1 - dd / range : 0.3f) * 9 * (float)st_.pullStr;
+            if (collapseLeft > 0) strength = std::max(strength, 4.0f * (float)st_.collapsePow);
+            float acc = strength * speed;
+            o.v.x += dx / dd * acc * (float)dt;
+            o.v.y += dy / dd * acc * (float)dt;
+            // закрутка по спирали
+            o.v.x += -dy / dd * acc * 0.25f * (float)dt;
+            o.v.y += dx / dd * acc * 0.25f * (float)dt;
+            o.v.x *= 1 - std::min(0.9f, (float)dt * 1.5f);
+            o.v.y *= 1 - std::min(0.9f, (float)dt * 1.5f);
+        }
+        if (o.kind == K_RIVAL && !edible) {
+            // соперник крупнее — охотится на нас
+            float sp = speed * 0.45f;
+            o.v.x += (dx / dd * sp - o.v.x) * (float)dt;
+            o.v.y += (dy / dd * sp - o.v.y) * (float)dt;
+        }
+        o.p.x += o.v.x * (float)dt;
+        o.p.y += o.v.y * (float)dt;
+        o.rot += o.spin * (float)dt;
+        o.hurtCd = std::max(0.0f, o.hurtCd - (float)dt);
+
+        if (o.kind == K_PULSAR) {
+            o.beam += (float)dt * 1.1f;
+            if (!edible && o.hurtCd <= 0) {
+                // луч длиной в 9 радиусов пульсара
+                float bl = o.size * 6;
+                if (dd < bl) {
+                    float ang = std::atan2(-dy, -dx);
+                    for (float b : {o.beam, o.beam + 3.14159f}) {
+                        float diff = std::remainder(ang - b, 6.28318f);
+                        if (std::fabs(diff) * dd < R + o.size * 0.25f) {
+                            hurt(1.2, pos);
+                            o.hurtCd = 0.6f;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (edible && dd < R * 0.95f) {
+            eat(o, false);
+            continue;
+        }
+        if (!edible) {
+            float minD = R + o.size * 0.8f;
+            if (dd < minD) {
+                if (o.kind == K_ANTI) {
+                    hurt(2.0, o.p);
+                    o.dead = true;
+                    continue;
+                }
+                if (o.kind == K_RIVAL) {
+                    if (o.hurtCd <= 0) { hurt(1.5, pos); o.hurtCd = 0.7f; }
+                }
+                // упираемся в слишком крупный объект
+                float push = (minD - dd) / dd;
+                pos.x += dx * push * 0.6f;
+                pos.y += dy * push * 0.6f;
+                o.p.x -= dx * push * 0.4f;
+                o.p.y -= dy * push * 0.4f;
+            }
+        }
+        // Спутники
+        if (st_.sats > 0 && o.kind == K_TIER && o.size < satR * 1.4f) {
+            for (int s = 0; s < st_.sats; s++) {
+                float a = satAngle + s * 6.2832f / st_.sats;
+                float sx = pos.x + std::cos(a) * R * 2.0f, sy = pos.y + std::sin(a) * R * 2.0f;
+                float ex = sx - o.p.x, ey = sy - o.p.y;
+                if (ex * ex + ey * ey < satR * satR * 1.6f) {
+                    eat(o, true);
+                    break;
+                }
             }
         }
     }
+    objs.erase(std::remove_if(objs.begin(), objs.end(), [](const Obj &o) { return o.dead; }), objs.end());
+    if (phase != Phase::Run) return;  // победа
 
-    // Соперник
-    if (rivalActive) {
-        double steal = mass * 0.02 * dt;
-        mass -= steal;
-        rivalStolen += steal;
-    } else if (rank() >= 2) {
-        rivalTimer -= dt;
-        if (rivalTimer <= 0) {
-            rivalTimer = 110 + rnd() * 40;
-            rivalActive = true;
-            rivalMaxHp = rivalHp = 25 + 5 * rivalsKilled;
-            rivalStolen = 0;
-            rivalLeft = 25;
-            rivalX = (float)(0.15 + rnd() * 0.7);
-            rivalY = (float)(0.15 + rnd() * 0.25);
-            events.push_back({EvType::RivalSpawn});
+    clockCd_ = std::max(0.0, clockCd_ - dt);
+    darkCd_ = std::max(0.0, darkCd_ - dt);
+    goldCd_ = std::max(0.0, goldCd_ - dt);
+    spawnAcc_ += dt;
+    if (spawnAcc_ > 0.15) {
+        spawnAcc_ = 0;
+        spawnAround(false);
+    }
+
+    if (timeLeft <= 0) {
+        if (!loopUsed && st_.loop > 0 && rnd() < st_.loop) {
+            loopUsed = true;
+            timeLeft = 8;
+            events.push_back({EvType::LoopSave, 8, 0, pos});
+            return;
         }
+        timeLeft = 0;
+        double interest = mass * st_.interest;
+        mass += interest;
+        total += interest;
+        phase = Phase::RunEnd;
+        events.push_back({EvType::RunEnd, interest});
     }
-
-    // Метеоритный дождь
-    if (meteorLeft > 0) {
-        meteorLeft = std::max(0.0, meteorLeft - dt);
-    } else if (hasNode(C_METEOR)) {
-        meteorTimer -= dt;
-        if (meteorTimer <= 0) {
-            meteorTimer = 70 + rnd() * 25;
-            meteorLeft = 10;
-            events.push_back({EvType::MeteorStart, 10});
-        }
-    }
-}
-
-bool Game::click()
-{
-    if (won) return false;
-    clicks++;
-    bool perfect = resonanceWindow();
-    combo += perfect ? 4 : 1;
-    comboTimer = 1.0;
-    double v = baseClick() * comboMult();
-    if (perfect) {
-        v *= 3;
-        perfects++;
-        if (perfects % 15 == 0) gainDark(1, "perfect");
-    }
-    bool crit = rnd() < critChance();
-    if (crit) {
-        v *= critMult();
-        crits++;
-    }
-    gain(v);
-    events.push_back({EvType::Click, v, 0, crit, perfect});
-
-    if (hasNode(G_WAVE) && clicks % 50 == 0) {
-        double w = std::max(100.0, income() * 15);
-        gain(w);
-        events.push_back({EvType::Wave, w});
-    }
-    return true;
-}
-
-int Game::buyGen(int i, int amount)
-{
-    if (won || i < 0 || i >= kGenCount || !genVisible(i)) return 0;
-    int n = amount <= 0 ? genAffordable(i) : amount;
-    if (n <= 0) return 0;
-    double c = genCostN(i, n);
-    if (mass < c) return 0;
-    mass -= c;
-    gens[i] += n;
-    events.push_back({EvType::Buy, (double)n, i});
-    if (hasNode(D_FOAM)) {
-        int free = 0;
-        for (int k = 0; k < n; k++) free += rnd() < 0.10;
-        if (free > 0) {
-            gens[i] += free;
-            events.push_back({EvType::Foam, (double)free, i});
-        }
-    }
-    return n;
-}
-
-bool Game::buyNode(NodeId id)
-{
-    if (won || !canAffordNode(id)) return false;
-    if (kNodes[id].branch == Branch::Dark) dark -= kNodes[id].cost;
-    else mass -= kNodes[id].cost;
-    nodes_[id] = true;
-    events.push_back({EvType::Node, kNodes[id].cost, id});
-    return true;
-}
-
-bool Game::catchComet()
-{
-    if (cometLeft <= 0 || won) return false;
-    cometLeft = 0;
-    cometsCaught++;
-    gainDark(1, "comet");
-    if (hasNode(C_SUPERNOVA) && rnd() < 0.35) {
-        frenzyLeft = 12;
-        events.push_back({EvType::Frenzy, 12});
-        unlock(ACH_FRENZY);
-        return true;
-    }
-    double reward = std::max(50.0, income() * 20 + mass * 0.03);
-    if (hasNode(C_MAGNETAR)) reward *= 2;
-    gain(reward);
-    events.push_back({EvType::Comet, reward});
-    return true;
-}
-
-bool Game::hitRival()
-{
-    if (!rivalActive || won) return false;
-    double dmg = rnd() < critChance() ? 3 : 1;
-    if (abilityLeft[AB_RUSH] > 0) dmg *= 2;
-    rivalHp -= dmg;
-    events.push_back({EvType::RivalHit, dmg});
-    if (rivalHp <= 0) {
-        rivalActive = false;
-        rivalsKilled++;
-        double back = std::max(rivalStolen * 2, income() * 20);
-        gain(back);
-        gainDark(3, "rival");
-        events.push_back({EvType::RivalKilled, back});
-        unlock(ACH_RIVAL);
-    }
-    return true;
-}
-
-bool Game::catchMeteor()
-{
-    if (meteorLeft <= 0 || won) return false;
-    double r = std::max(20.0, income() * 3);
-    gain(r);
-    meteorsCaught++;
-    if (meteorsCaught % 5 == 0) gainDark(1, "meteor");
-    events.push_back({EvType::Meteor, r});
-    return true;
-}
-
-bool Game::intercept(int i)
-{
-    if (!hasNode(C_INTERCEPT) || won || i < 0 || i >= kGenCount) return false;
-    double r = std::max(10.0, genIncome(i) * 4);
-    gain(r);
-    intercepts++;
-    events.push_back({EvType::Intercept, r, i});
-    return true;
-}
-
-bool Game::useAbility(Ability a)
-{
-    if (won || !abilityUnlocked(a) || abilityCd[a] > 0) return false;
-    abilityCd[a] = abilityCooldown(a);
-    abilityLeft[a] = kAbilities[a].duration;
-    double v = 0;
-    if (a == AB_PORTAL) {
-        v = std::max(100.0, income() * 90);
-        gain(v);
-    }
-    events.push_back({EvType::Ability, v, a});
-    unlock(ACH_ABILITY);
-    return true;
-}
-
-bool Game::collapse()
-{
-    if (won || mass < kGoal) return false;
-    mass -= kGoal;
-    won = true;
-    events.push_back({EvType::Collapse});
-    return true;
-}
-
-void Game::unlock(AchId a)
-{
-    if (achs_[a]) return;
-    achs_[a] = true;
-    events.push_back({EvType::Achievement, 0, a});
-    gainDark(1, "achievement");
-}
-
-void Game::checkAchievements()
-{
-    if (clicks >= 1) unlock(ACH_FIRST);
-    if (clicks >= 100) unlock(ACH_CLICK100);
-    if (clicks >= 1000) unlock(ACH_CLICK1000);
-    if (comboMult() >= 2) unlock(ACH_COMBO);
-    if (crits >= 1) unlock(ACH_CRIT);
-    if (cometsCaught >= 1) unlock(ACH_COMET1);
-    if (cometsCaught >= 10) unlock(ACH_COMET10);
-    if (total >= 1e3) unlock(ACH_MASS1K);
-    if (total >= 1e6) unlock(ACH_MASS1M);
-    if (total >= 1e9) unlock(ACH_MASS1B);
-    if (std::all_of(gens.begin(), gens.end(), [](int c) { return c > 0; })) unlock(ACH_ALLGENS);
-    if (nodesOwned() >= 16) unlock(ACH_TREE16);
-    if (nodesOwned() == N_COUNT - 1) unlock(ACH_TREEALL);
-    if (perfects >= 10) unlock(ACH_PERFECT);
-    if (intercepts >= 10) unlock(ACH_INTERCEPT);
-    if (meteorsCaught >= 15) unlock(ACH_METEOR);
-    if (std::any_of(gens.begin(), gens.end(), [](int c) { return c >= 25; })) unlock(ACH_MILESTONE);
-    if (darkTotal >= 20) unlock(ACH_DARK);
 }
 
 std::string fmtNum(double v)
