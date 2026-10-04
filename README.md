@@ -17,6 +17,9 @@ make
 cc -O2 -o blackhole src/main.c src/game.c -lm
 ```
 
+Если запустить `blackhole` двойным щелчком из файлового менеджера, игра сама
+откроется в окне терминала.
+
 Нужен терминал с поддержкой UTF-8 и ANSI-цветов размером от 80×28.
 Работает на Linux и macOS. На Windows собирается MinGW
 (`gcc -O2 -o blackhole.exe src/main.c src/game.c`) и запускается в Windows Terminal.

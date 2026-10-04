@@ -76,8 +76,38 @@ static void on_signal(int sig)
     _exit(0);
 }
 
+/*
+ * Если игру запустили двойным щелчком из файлового менеджера, терминала нет
+ * и ничего не видно. Тогда перезапускаемся внутри эмулятора терминала.
+ */
+static void ensure_terminal(void)
+{
+    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) return;
+    if (getenv("BH_RELAUNCHED")) return;
+
+    char self[4096];
+    ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
+    if (n <= 0) return;
+    self[n] = '\0';
+    setenv("BH_RELAUNCHED", "1", 1);
+
+    static const char *TERMS[][2] = {
+        {"x-terminal-emulator", "-e"}, {"gnome-terminal", "--"}, {"konsole", "-e"},
+        {"xfce4-terminal", "-x"},      {"mate-terminal", "-x"},  {"lxterminal", "-e"},
+        {"tilix", "-e"},               {"terminator", "-x"},     {"kitty", NULL},
+        {"alacritty", "-e"},           {"foot", NULL},           {"xterm", "-e"},
+    };
+    for (size_t i = 0; i < sizeof TERMS / sizeof TERMS[0]; i++) {
+        if (TERMS[i][1]) execlp(TERMS[i][0], TERMS[i][0], TERMS[i][1], self, (char *)NULL);
+        else execlp(TERMS[i][0], TERMS[i][0], self, (char *)NULL);
+    }
+    fprintf(stderr, "Не найден эмулятор терминала. Запустите игру из терминала: %s\n", self);
+    exit(1);
+}
+
 static void term_setup(void)
 {
+    ensure_terminal();
     if (tcgetattr(STDIN_FILENO, &orig_tio) == 0) {
         struct termios t = orig_tio;
         tio_saved = 1;
