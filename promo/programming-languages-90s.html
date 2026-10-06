@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 </head>
 <body>
-<title>Ten Languages in 90 Seconds</title>
+<title>Десять языков за 90 секунд</title>
 <style>
   /* Layout: one 16:9 stage, letterboxed and scaled to the window.
      All visuals are drawn on a 1920x1080 logical canvas; the HUD and the
@@ -72,7 +72,7 @@
   #vol { flex: none; width: max(64px, calc(var(--u) * 170)); accent-color: var(--accent); margin: 0; }
 </style>
 
-<div id="stage" role="region" aria-label="Ten programming languages, their strengths and weaknesses, a 90-second animated video">
+<div id="stage" role="region" aria-label="Десять языков программирования: сильные и слабые стороны, анимированное видео на 90 секунд">
   <canvas id="view" aria-hidden="true"></canvas>
 
   <div id="overlay">
@@ -81,22 +81,22 @@
         <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
         <svg id="replayIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
       </span>
-      <span id="playLabel">Play</span>
+      <span id="playLabel">Смотреть</span>
     </button>
-    <p class="hint" id="hint">Sound on &middot; 90 seconds</p>
+    <p class="hint" id="hint">Включите звук &middot; 90 секунд</p>
   </div>
 
   <div id="hud">
     <span id="timer">0:00 / 1:30</span>
-    <div id="track" role="progressbar" aria-label="Playback progress" aria-valuemin="0" aria-valuemax="90" aria-valuenow="0"><div id="bar"></div></div>
-    <button id="muteBtn" type="button" aria-label="Mute" aria-pressed="false">
+    <div id="track" role="progressbar" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="90" aria-valuenow="0"><div id="bar"></div></div>
+    <button id="muteBtn" type="button" aria-label="Выключить звук" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>
         <path id="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <path id="cross" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
       </svg>
     </button>
-    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Master volume">
+    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Громкость">
   </div>
 </div>
 
@@ -129,45 +129,45 @@
      ===================================================================== */
   const LANGS = [
     {
-      name: 'Python', color: [79, 160, 230], color2: [255, 212, 59], file: 'greet.py', meta: '1991 · Guido van Rossum',
-      tagline: 'Readable, batteries included, everywhere in data.',
-      pros: ['Clean, readable syntax', 'Huge ecosystem for data and AI', 'Fast to prototype and script'],
-      cons: ['Slow for CPU-heavy loops', 'GIL limits threads (CPython)', 'Type errors surface at runtime'],
-      best: ['Data science', 'Machine learning', 'Automation', 'Backends'],
+      name: 'Python', color: [79, 160, 230], color2: [255, 212, 59], file: 'greet.py', meta: '1991 · Гвидо ван Россум',
+      tagline: 'Читаемый, «батарейки в комплекте», король данных.',
+      pros: ['Чистый, читаемый синтаксис', 'Огромная экосистема для данных и ИИ', 'Быстрые прототипы и скрипты'],
+      cons: ['Медленный в тяжёлых вычислениях', 'GIL ограничивает потоки (CPython)', 'Ошибки типов всплывают при запуске'],
+      best: ['Анализ данных', 'Машинное обучение', 'Автоматизация', 'Бэкенд'],
       syntax: { kw: ['def', 'for', 'in', 'if', 'return', 'import'], bi: ['print', 'len', 'range'], comment: '#', sq: true },
       code: [
         'def greet(names):',
         '    for name in names:',
-        '        print(f"Hello, {name}!")',
+        '        print(f"Привет, {name}!")',
         '',
         'squares = [n * n for n in range(5)]',
-        'greet(["Ada", "Linus"])'
+        'greet(["Ада", "Линус"])'
       ]
     },
     {
-      name: 'Java', color: [248, 152, 32], color2: [231, 111, 0], file: 'Hello.java', meta: '1995 · James Gosling, Sun Microsystems',
-      tagline: 'Write once, run anywhere on the JVM.',
-      pros: ['Portable across platforms via the JVM', 'Mature, battle-tested ecosystem', 'Static typing and garbage collection'],
-      cons: ['Verbose, lots of boilerplate', 'JVM startup and memory overhead', 'Heavy frameworks, complex builds'],
-      best: ['Enterprise backends', 'Android', 'Big data'],
+      name: 'Java', color: [248, 152, 32], color2: [231, 111, 0], file: 'Hello.java', meta: '1995 · Джеймс Гослинг, Sun Microsystems',
+      tagline: 'Написал однажды, запускай везде на JVM.',
+      pros: ['Переносимость через JVM', 'Зрелая, проверенная экосистема', 'Строгие типы и сборка мусора'],
+      cons: ['Много шаблонного кода', 'Долгий старт JVM и расход памяти', 'Тяжёлые фреймворки, сложная сборка'],
+      best: ['Корпоративный бэкенд', 'Android', 'Big Data'],
       syntax: { kw: ['public', 'class', 'static', 'void', 'new', 'return', 'for', 'int'], bi: ['String', 'System', 'List'], comment: '//', sq: true },
       code: [
         'public class Hello {',
         '    public static void main(String[] args) {',
         '        List<String> langs = List.of("Java", "JVM");',
         '        for (String s : langs) {',
-        '            System.out.println("Hello, " + s);',
+        '            System.out.println("Привет, " + s);',
         '        }',
         '    }',
         '}'
       ]
     },
     {
-      name: 'JavaScript', color: [247, 223, 30], color2: [255, 240, 140], file: 'app.js', meta: '1995 · Brendan Eich, Netscape',
-      tagline: 'The language every browser speaks.',
-      pros: ['Runs natively in every browser', 'Full stack with Node.js', 'Huge package ecosystem (npm)'],
-      cons: ['Odd type coercion: "1" + 1 is "11"', 'Dynamic typing (hence TypeScript)', 'Fast-churning tools and frameworks'],
-      best: ['Web front-end', 'Node.js servers', 'Cross-platform apps'],
+      name: 'JavaScript', color: [247, 223, 30], color2: [255, 240, 140], file: 'app.js', meta: '1995 · Брендан Айк, Netscape',
+      tagline: 'Язык, на котором говорит каждый браузер.',
+      pros: ['Работает в любом браузере', 'Фулстек вместе с Node.js', 'Огромная экосистема пакетов (npm)'],
+      cons: ['Странное приведение: "1" + 1 = "11"', 'Динамические типы (отсюда TypeScript)', 'Фреймворки быстро устаревают'],
+      best: ['Фронтенд', 'Серверы на Node.js', 'Кроссплатформенные приложения'],
       syntax: { kw: ['const', 'let', 'await', 'async', 'function', 'return', 'new'], bi: ['console', 'fetch', 'document'], comment: '//', sq: true },
       code: [
         'const res = await fetch("/api/users");',
@@ -181,11 +181,11 @@
       ]
     },
     {
-      name: 'C', color: [168, 185, 204], color2: [110, 140, 180], file: 'hello.c', meta: '1972 · Dennis Ritchie, Bell Labs',
-      tagline: 'Portable assembly that still runs the world.',
-      pros: ['Close to the hardware, tiny runtime', 'Fast and predictable', 'Compiles for almost any chip'],
-      cons: ['Manual memory management', 'Buffer overflows, undefined behavior', 'Minimal standard library'],
-      best: ['OS kernels', 'Embedded', 'Drivers'],
+      name: 'C', color: [168, 185, 204], color2: [110, 140, 180], file: 'hello.c', meta: '1972 · Деннис Ритчи, Bell Labs',
+      tagline: 'Переносимый ассемблер, на котором держится мир.',
+      pros: ['Близко к железу, крошечный рантайм', 'Быстрый и предсказуемый', 'Компилируется почти под любой чип'],
+      cons: ['Ручное управление памятью', 'Риск переполнения буфера', 'Минимальная стандартная библиотека'],
+      best: ['Ядра ОС', 'Встраиваемые системы', 'Драйверы'],
       syntax: { kw: ['int', 'char', 'void', 'return', 'if', 'sizeof'], bi: ['malloc', 'free', 'snprintf', 'puts', 'NULL'], comment: '//', sq: true, pre: true },
       code: [
         '#include <stdio.h>',
@@ -194,18 +194,18 @@
         'int main(void) {',
         '    char *buf = malloc(64);',
         '    if (buf == NULL) return 1;',
-        '    snprintf(buf, 64, "Hello, %s", "C");',
+        '    snprintf(buf, 64, "Привет, %s", "C");',
         '    puts(buf);',
-        '    free(buf);   // forget this and you leak',
+        '    free(buf);   // забудешь — будет утечка',
         '}'
       ]
     },
     {
-      name: 'C++', color: [101, 154, 230], color2: [0, 120, 215], file: 'sort.cpp', meta: '1985 · Bjarne Stroustrup, Bell Labs',
-      tagline: 'Native performance with high-level abstractions.',
-      pros: ['Native speed, zero-cost abstractions', 'RAII and powerful templates', 'Standard in games and engines'],
-      cons: ['Huge, complex language', 'Slow compile times', 'Memory-safety pitfalls remain'],
-      best: ['Game engines', 'Browsers', 'High-performance systems'],
+      name: 'C++', color: [101, 154, 230], color2: [0, 120, 215], file: 'sort.cpp', meta: '1985 · Бьёрн Страуструп, Bell Labs',
+      tagline: 'Нативная скорость и высокоуровневые абстракции.',
+      pros: ['Абстракции без накладных расходов', 'RAII и мощные шаблоны', 'Стандарт для игр и движков'],
+      cons: ['Огромный и сложный язык', 'Долгая компиляция', 'Ошибки с памятью всё ещё возможны'],
+      best: ['Игровые движки', 'Браузеры', 'Высоконагруженные системы'],
       syntax: { kw: ['int', 'auto', 'for', 'return', 'template', 'const'], bi: ['std', 'vector', 'cout', 'ranges', 'sort'], comment: '//', sq: true, pre: true },
       code: [
         '#include <algorithm>',
@@ -220,11 +220,11 @@
       ]
     },
     {
-      name: 'C#', color: [181, 126, 220], color2: [140, 80, 200], file: 'Program.cs', meta: '2000 · Anders Hejlsberg, Microsoft',
-      tagline: 'Modern, productive, and built on .NET.',
-      pros: ['LINQ, async/await, rich features', 'Excellent tooling and .NET libraries', 'Cross-platform; powers Unity games'],
-      cons: ['Ecosystem centered on .NET', 'Garbage collector can add pauses', 'Heavier runtime than native code'],
-      best: ['Unity games', 'Web APIs (ASP.NET)', 'Desktop apps'],
+      name: 'C#', color: [181, 126, 220], color2: [140, 80, 200], file: 'Program.cs', meta: '2000 · Андерс Хейлсберг, Microsoft',
+      tagline: 'Современный и продуктивный, на платформе .NET.',
+      pros: ['LINQ, async/await, богатый язык', 'Отличные инструменты и .NET', 'Кроссплатформенность, игры на Unity'],
+      cons: ['Экосистема завязана на .NET', 'Сборщик мусора может давать паузы', 'Рантайм тяжелее нативного кода'],
+      best: ['Игры на Unity', 'Веб-API (ASP.NET)', 'Десктоп-приложения'],
       syntax: { kw: ['var', 'foreach', 'in', 'new', 'return', 'await', 'async'], bi: ['Console', 'Where', 'OrderBy', 'Select'], comment: '//', sq: true },
       code: [
         'var adults = people',
@@ -237,30 +237,30 @@
       ]
     },
     {
-      name: 'Assembly', color: [124, 227, 139], color2: [70, 190, 110], file: 'hello.asm', meta: '1947 · Kathleen Booth · one dialect per CPU',
-      tagline: 'Assembler: human-readable machine instructions.',
-      pros: ['Total control of the CPU', 'Hand-tuned code for hot loops', 'Essential for boot code and reversing'],
-      cons: ['Tied to one CPU architecture', 'Slow to write, hard to read', 'No safety net at all'],
-      best: ['Bootloaders', 'Embedded', 'Security research'],
+      name: 'Ассемблер', color: [124, 227, 139], color2: [70, 190, 110], file: 'hello.asm', meta: '1947 · Кэтлин Бут · свой диалект у каждого CPU',
+      tagline: 'Машинные инструкции в человекочитаемом виде.',
+      pros: ['Полный контроль над процессором', 'Ручная оптимизация горячих циклов', 'Незаменим для загрузчиков и реверса'],
+      cons: ['Привязан к одной архитектуре CPU', 'Долго писать, трудно читать', 'Никакой страховки от ошибок'],
+      best: ['Загрузчики', 'Встраиваемые системы', 'Исследования безопасности'],
       syntax: { kw: ['mov', 'lea', 'xor', 'syscall', 'call', 'ret', 'jmp'], bi: ['rax', 'rdi', 'rsi', 'rdx', 'edi'], comment: ';', sq: false },
       code: [
         '_start:',
-        '    mov  rax, 1        ; sys_write',
-        '    mov  rdi, 1        ; stdout',
+        '    mov  rax, 1        ; вызов write',
+        '    mov  rdi, 1        ; вывод',
         '    lea  rsi, [msg]',
         '    mov  rdx, 6',
         '    syscall',
-        '    mov  rax, 60       ; sys_exit',
+        '    mov  rax, 60       ; выход',
         '    xor  edi, edi',
         '    syscall'
       ]
     },
     {
-      name: 'Rust', color: [222, 165, 132], color2: [247, 76, 0], file: 'main.rs', meta: '2015 · Graydon Hoare, Mozilla',
-      tagline: 'Memory safety without a garbage collector.',
-      pros: ['Borrow checker prevents memory bugs', 'C/C++-class performance', 'Cargo: great build and package tool'],
-      cons: ['Steep learning curve', 'Long compile times', 'Younger library ecosystem'],
-      best: ['Systems', 'CLI tools', 'WebAssembly'],
+      name: 'Rust', color: [222, 165, 132], color2: [247, 76, 0], file: 'main.rs', meta: '2015 · Грейдон Хоар, Mozilla',
+      tagline: 'Безопасная память без сборщика мусора.',
+      pros: ['Borrow checker ловит ошибки памяти', 'Скорость уровня C и C++', 'Cargo: отличная сборка и пакеты'],
+      cons: ['Крутая кривая обучения', 'Долгая компиляция', 'Более молодая экосистема библиотек'],
+      best: ['Системное ПО', 'CLI-утилиты', 'WebAssembly'],
       syntax: { kw: ['fn', 'let', 'if', 'else', 'mut', 'return', 'match'], bi: ['str', 'String', 'println!'], comment: '//', sq: false },
       code: [
         "fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {",
@@ -268,22 +268,22 @@
         '}',
         '',
         'fn main() {',
-        '    let s = String::from("borrowed");',
+        '    let s = String::from("заём");',
         '    println!("{}", longest(&s, "ok"));',
         '}'
       ]
     },
     {
-      name: 'Go', color: [0, 173, 216], color2: [94, 210, 240], file: 'main.go', meta: '2009 · Griesemer, Pike, Thompson (Google)',
-      tagline: 'A small language for concurrent servers.',
-      pros: ['Small, simple, easy to learn', 'Goroutines and channels', 'Fast builds, single static binary'],
-      cons: ['Repetitive if err != nil', 'Less expressive type system', 'GC rules out hard real-time'],
-      best: ['Cloud services', 'DevOps tools', 'Network servers'],
+      name: 'Go', color: [0, 173, 216], color2: [94, 210, 240], file: 'main.go', meta: '2009 · Гризмер, Пайк, Томпсон (Google)',
+      tagline: 'Маленький язык для конкурентных серверов.',
+      pros: ['Маленький, простой, легко выучить', 'Горутины и каналы', 'Быстрая сборка, один бинарник'],
+      cons: ['Бесконечные if err != nil', 'Менее выразительная система типов', 'Не для жёсткого реалтайма (GC)'],
+      best: ['Облачные сервисы', 'DevOps-инструменты', 'Сетевые серверы'],
       syntax: { kw: ['func', 'go', 'if', 'return', 'chan', 'make', 'nil', 'err'], bi: ['fmt', 'log', 'os'], comment: '//', sq: false },
       code: [
         'func main() {',
         '    ch := make(chan string)',
-        '    go func() { ch <- "hi from a goroutine" }()',
+        '    go func() { ch <- "привет из горутины" }()',
         '    fmt.Println(<-ch)',
         '',
         '    if _, err := os.Open("x.txt"); err != nil {',
@@ -293,19 +293,19 @@
       ]
     },
     {
-      name: 'HTML', color: [227, 79, 38], color2: [240, 101, 41], file: 'index.html', meta: '1991 · Tim Berners-Lee',
-      tagline: 'Markup, not a programming language.',
-      pros: ['Every browser renders it', 'Easy to learn, instant results', 'Semantic structure, accessibility'],
-      cons: ['No logic or computation on its own', 'Needs CSS and JS to look and act', 'Mistakes fail silently'],
-      best: ['Web pages', 'Emails', 'Documentation'],
+      name: 'HTML', color: [227, 79, 38], color2: [240, 101, 41], file: 'index.html', meta: '1991 · Тим Бернерс-Ли',
+      tagline: 'Язык разметки, а не программирования.',
+      pros: ['Его отображает любой браузер', 'Легко выучить, результат сразу', 'Семантика и доступность'],
+      cons: ['Сам по себе не умеет логику', 'Нужны CSS и JS для вида и поведения', 'Ошибки проходят молча'],
+      best: ['Веб-страницы', 'Письма', 'Документация'],
       syntax: { html: true },
       code: [
         '<!DOCTYPE html>',
-        '<html lang="en">',
+        '<html lang="ru">',
         '  <body>',
-        '    <h1>Hello, web!</h1>',
-        '    <p>Structure, not logic.</p>',
-        '    <a href="/docs">Read more</a>',
+        '    <h1>Привет, веб!</h1>',
+        '    <p>Структура, а не логика.</p>',
+        '    <a href="/docs">Подробнее</a>',
         '  </body>',
         '</html>'
       ]
@@ -512,10 +512,10 @@
     const p1 = eOut(prog(t, 0.2, 1.1));
     ga(p1 * (1 - out)); ctx.font = `700 132px ${SANS}`; ctx.fillStyle = rgba(C.ink, 1);
     ctx.save(); ctx.shadowColor = rgba(C.accent, 0.45); ctx.shadowBlur = 30;
-    ctx.fillText('Ten languages', 960, 380 + (1 - p1) * 30); ctx.restore();
+    ctx.fillText('Десять языков', 960, 380 + (1 - p1) * 30); ctx.restore();
     const p2 = eOut(prog(t, 0.9, 1.6));
     ga(p2 * (1 - out)); ctx.font = `500 42px ${SANS}`; ctx.fillStyle = rgba(C.muted, 1);
-    ctx.fillText('Strengths and weaknesses in 90 seconds', 960, 462 + (1 - p2) * 20);
+    ctx.fillText('Сильные и слабые стороны за 90 секунд', 960, 462 + (1 - p2) * 20);
     const rp = eOut(prog(t, 1.2, 2.0));
     ga(rp * 0.6 * (1 - out)); ctx.fillStyle = rgba(C.accent, 1); ctx.fillRect(960 - 200 * rp, 512, 400 * rp, 2);
     tagGrid(t, 1.8, 0.18, 590, 5.0);
@@ -526,10 +526,10 @@
     ctx.textAlign = 'center';
     const p1 = eOut(prog(t, 86.9, 87.5));
     ga(p1); ctx.font = `700 92px ${SANS}`; ctx.fillStyle = rgba(C.ink, 1);
-    ctx.fillText('No best language.', 960, 640 + (1 - p1) * 24);
+    ctx.fillText('Лучшего языка нет.', 960, 640 + (1 - p1) * 24);
     const p2 = eOut(prog(t, 87.5, 88.1));
     ga(p2); ctx.font = `500 50px ${SANS}`; ctx.fillStyle = rgba(C.accent, 1);
-    ctx.fillText('Just the right tool for the job.', 960, 730 + (1 - p2) * 18);
+    ctx.fillText('Есть подходящий инструмент для задачи.', 960, 730 + (1 - p2) * 18);
     if (t >= 87.6) {                                       // flash on the final hit
       const f = 1 - prog(t, 87.6, 88.3);
       ga(0.35 * f * f); glow(960, 600, 900, [255, 236, 214], 1);
@@ -614,17 +614,20 @@
     }
 
     // --- strengths / weaknesses ---
-    listCard(tau, 1060, 110, 740, 375, 'STRENGTHS', C.ok, L.pros, PRO_AT, 1);
-    listCard(tau, 1060, 525, 740, 375, 'WEAKNESSES', C.bad, L.cons, CON_AT, -1);
+    listCard(tau, 1060, 110, 740, 375, 'СИЛЬНЫЕ СТОРОНЫ', C.ok, L.pros, PRO_AT, 1);
+    listCard(tau, 1060, 525, 740, 375, 'СЛАБЫЕ СТОРОНЫ', C.bad, L.cons, CON_AT, -1);
 
     // --- best for ---
     ctx.textBaseline = 'middle';
     const lp = eOut(prog(tau, CHIP_AT - 0.15, CHIP_AT + 0.3));
     ga(lp); ctx.font = `700 20px ${SANS}`; setLS(5); ctx.fillStyle = rgba(C.muted, 1);
-    ctx.fillText('BEST FOR', 120, 956); setLS(0);
-    let x = 262;
+    ctx.fillText('ГДЕ ПРИМЕНЯЮТ', 120, 956);
+    let x = 120 + ctx.measureText('ГДЕ ПРИМЕНЯЮТ').width + 24; setLS(0);
+    ctx.font = `600 24px ${SANS}`;
+    const rowW = L.best.reduce((n, b) => n + ctx.measureText(b).width + 54, 0);
+    const chipPx = Math.min(24, Math.floor(24 * (1800 - x) / rowW));
     L.best.forEach((b, k) => {
-      ctx.font = `600 24px ${SANS}`;
+      ctx.font = `600 ${chipPx}px ${SANS}`;
       const bw = ctx.measureText(b).width + 40;
       const p = prog(tau, CHIP_AT + k * CHIP_STEP, CHIP_AT + k * CHIP_STEP + 0.35);
       if (p > 0) {
@@ -894,9 +897,9 @@
     state.running = false;
     posterT = 88.6;
     render(posterT);
-    playLabel.textContent = 'Replay';
+    playLabel.textContent = 'Ещё раз';
     $('playIcon').toggleAttribute('hidden', true); $('replayIcon').toggleAttribute('hidden', false);
-    $('hint').textContent = 'Watch it again';
+    $('hint').textContent = 'Посмотреть снова';
     overlay.hidden = false;
     playBtn.focus({ preventScroll: true });
   }
@@ -907,7 +910,7 @@
   function applyVolume() {
     if (actx && master) master.gain.setTargetAtTime(effVol(), actx.currentTime, 0.03);
     muteBtn.setAttribute('aria-pressed', String(vol.muted));
-    muteBtn.setAttribute('aria-label', vol.muted ? 'Unmute' : 'Mute');
+    muteBtn.setAttribute('aria-label', vol.muted ? 'Включить звук' : 'Выключить звук');
     $('waves').toggleAttribute('hidden', vol.muted);
     $('cross').toggleAttribute('hidden', !vol.muted);
   }
