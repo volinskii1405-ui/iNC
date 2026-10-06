@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>История языков программирования</title>
+<style>
+  /* Layout: one 16:9 stage, letterboxed and scaled to the window. Left: the
+     code being written on the medium of its era (tape, cards, teletype,
+     terminal, editor). Right: the language card. Bottom: a 1945-2020
+     timeline. Finale: a family tree of influences. Single dark look. */
+  :root {
+    --bg: #030406;
+    --stage: #08080b;
+    --ink: #efebe4;
+    --muted: #8e8a97;
+    --accent: #7fd1ff;
+    --warm: #ffb85c;
+    --u: 1px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, Menlo, "Liberation Mono", "DejaVu Sans Mono", monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; font-family: var(--sans); }
+  #stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--stage); overflow: hidden; user-select: none; -webkit-user-select: none; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay {
+    position: absolute; inset: 0; z-index: 2;
+    display: grid; place-content: center; justify-items: center; gap: calc(var(--u) * 26);
+    background: radial-gradient(ellipse at center, rgba(3, 4, 6, .45), rgba(3, 4, 6, .84));
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  #playBtn { display: grid; justify-items: center; gap: calc(var(--u) * 18); background: none; border: 0; color: var(--ink); cursor: pointer; font: inherit; padding: 0; }
+  #playBtn .disc {
+    width: max(72px, calc(var(--u) * 176)); aspect-ratio: 1; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: #031522;
+    box-shadow: 0 0 0 calc(var(--u) * 10) rgba(127, 209, 255, .15), 0 0 calc(var(--u) * 90) rgba(127, 209, 255, .45);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  #playBtn:hover .disc { transform: scale(1.05); }
+  #playBtn:focus-visible { outline: none; }
+  #playBtn:focus-visible .disc { box-shadow: 0 0 0 4px var(--ink), 0 0 calc(var(--u) * 90) rgba(127, 209, 255, .55); }
+  #playBtn svg { width: 38%; height: 38%; }
+  #playLabel { font-size: max(15px, calc(var(--u) * 40)); font-weight: 650; letter-spacing: .02em; }
+  .hint { margin: 0; font-size: max(11px, calc(var(--u) * 24)); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+  #hud {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; gap: max(8px, calc(var(--u) * 22));
+    padding: max(6px, calc(var(--u) * 16)) max(16px, calc(var(--u) * 40)) max(8px, calc(var(--u) * 22));
+    background: linear-gradient(to top, rgba(0, 0, 0, .6), rgba(0, 0, 0, 0));
+    font-size: max(11px, calc(var(--u) * 22));
+  }
+  #timer { font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
+  #track { flex: 1; min-width: 0; height: max(3px, calc(var(--u) * 5)); background: rgba(255, 255, 255, .14); border-radius: 99px; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--warm)); border-radius: inherit; }
+  #muteBtn {
+    flex: none; width: max(28px, calc(var(--u) * 46)); height: max(28px, calc(var(--u) * 46));
+    display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(255, 255, 255, .08); color: var(--ink); cursor: pointer;
+  }
+  #muteBtn:hover { background: rgba(255, 255, 255, .16); }
+  #muteBtn:focus-visible, #vol:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #muteBtn svg { width: 60%; height: 60%; }
+  #vol { flex: none; width: max(64px, calc(var(--u) * 170)); accent-color: var(--accent); margin: 0; }
+</style>
+
+<div id="stage" role="region" aria-label="История языков программирования от ассемблера до Kotlin, анимированное видео на 3 минуты">
+  <canvas id="view" aria-hidden="true"></canvas>
+  <div id="overlay">
+    <button id="playBtn" type="button">
+      <span class="disc">
+        <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
+        <svg id="replayIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
+      </span>
+      <span id="playLabel">Смотреть</span>
+    </button>
+    <p class="hint" id="hint">Включите звук &middot; 3 минуты</p>
+  </div>
+  <div id="hud">
+    <span id="timer">0:00 / 3:00</span>
+    <div id="track" role="progressbar" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="180" aria-valuenow="0"><div id="bar"></div></div>
+    <button id="muteBtn" type="button" aria-label="Выключить звук" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>
+        <path id="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path id="cross" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+      </svg>
+    </button>
+    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Громкость">
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     TIMELINE: 0-8 intro · 20 languages x 8s (8-168) · 168-180 family tree
+     ===================================================================== */
+  const W = 1920, H = 1080;
+  const DURATION = 180, L_T0 = 8, L_DUR = 8, OUTRO_T0 = 168;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const SANS = css('--sans') || 'system-ui, sans-serif';
+  const MONO = css('--mono') || 'monospace';
+  const SX = 100, SY = 140, SW = 960, SH = 540;               // "screen" for the era medium
+  const TYPE_AT = 0.6, TYPE_END = 4.4, OUT_AT = 4.8, OUT_STEP = 0.2;
+  const FACT_AT = [1.2, 2.0], ROOTS_AT = 3.0;
+  const C = { ink: [239, 235, 228], muted: [142, 138, 151], accent: [127, 209, 255], warm: [255, 184, 92] };
+
+  /* =====================================================================
+     UTILITIES
+     ===================================================================== */
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const prog = (t, a, b) => clamp((t - a) / (b - a));
+  const eOut = p => 1 - Math.pow(1 - p, 3);
+  const eIn = p => p * p * p;
+  const eInOut = p => (p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const eBack = p => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const mix = (a, b, p) => [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p)];
+  const blink = t => Math.sin(t * 8) > 0;
+  function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const rng = mulberry32(1947);
+  const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* =====================================================================
+     DOM + CANVAS
+     ===================================================================== */
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), canvas = $('view'), ctx = canvas.getContext('2d');
+  const overlay = $('overlay'), playBtn = $('playBtn'), playLabel = $('playLabel');
+  const timerEl = $('timer'), barEl = $('bar'), trackEl = $('track'), muteBtn = $('muteBtn'), volEl = $('vol');
+  let scale = 1, posterT = 4.6;
+  function fit() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let w = vw, h = vw * 9 / 16;
+    if (h > vh) { h = vh; w = vh * 16 / 9; }
+    w = Math.max(1, Math.floor(w)); h = Math.max(1, Math.floor(h));
+    stage.style.width = w + 'px'; stage.style.height = h + 'px';
+    stage.style.setProperty('--u', (w / W) + 'px');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    scale = canvas.width / W;
+    if (!state.running) render(posterT);
+  }
+  const setLS = px => { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; };
+  let A = 1;
+  const ga = x => { ctx.globalAlpha = clamp(A * x); };
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function glow(x, y, r, col, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  function txt(s, x, y, font, color, align = 'left', base = 'alphabetic') {
+    ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(s, x, y);
+  }
+  function fitFont(text, weight, size, family, maxW) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const w = ctx.measureText(text).width;
+    if (w > maxW) ctx.font = `${weight} ${Math.floor(size * maxW / w)}px ${family}`;
+  }
+  function wrap(text, maxW) {
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function scanlines(a = 0.25) { ctx.fillStyle = `rgba(0,0,0,${a})`; for (let y = 0; y < SH; y += 4) ctx.fillRect(0, y, SW, 1.5); }
+
+  /* =====================================================================
+     CONTENT: twenty languages, oldest first
+     medium: tape | card | tty | home | tui | term | gui | editor
+     ===================================================================== */
+  const LANGS = [
+    { name: 'Ассемблер', year: 1947, who: 'Кэтлин Бут', medium: 'tape', accent: [200, 200, 200],
+      facts: ['Мнемоники вместо нулей и единиц', 'Одна команда равна одной инструкции процессора'], roots: ['машинный код'],
+      code: ['START:  LDA  X     ; загрузить X', '        ADD  Y     ; прибавить Y', '        STA  SUM   ; сохранить', '        HLT', 'X:      DC   2', 'Y:      DC   3'] },
+    { name: 'Fortran', year: 1957, who: 'Джон Бэкус · IBM', medium: 'card', accent: [110, 145, 240],
+      facts: ['Первый массовый язык высокого уровня', 'До сих пор считает погоду и физику'], roots: ['Ассемблер'],
+      code: ['      SUM = 0.0', '      DO 10 I = 1, 10', '         SUM = SUM + I', '   10 CONTINUE', '      PRINT *, SUM', '      END'] },
+    { name: 'Lisp', year: 1958, who: 'Джон Маккарти · MIT', medium: 'tty', accent: [190, 125, 240],
+      facts: ['Код и данные пишутся одинаково, в скобках', 'Здесь появилась сборка мусора'], roots: ['λ-исчисление'],
+      code: ['(defun factorial (n)', '  (if (= n 0)', '      1', '      (* n (factorial (- n 1)))))', '', '(factorial 5)'], out: ['120'] },
+    { name: 'COBOL', year: 1959, who: 'CODASYL · идеи Грейс Хоппер', medium: 'card', accent: [80, 190, 150],
+      facts: ['Читается почти как английский текст', 'Всё ещё работает в банках'], roots: ['FLOW-MATIC'],
+      code: ['IDENTIFICATION DIVISION.', 'PROGRAM-ID. HELLO.', 'PROCEDURE DIVISION.', "    DISPLAY 'HELLO, WORLD'.", '    STOP RUN.'] },
+    { name: 'BASIC', year: 1964, who: 'Джон Кемени и Томас Курц', medium: 'home', accent: [110, 170, 255],
+      facts: ['Создан для студентов Дартмута', 'Был встроен в домашние компьютеры 80-х'], roots: ['Fortran'],
+      code: ['10 PRINT "HELLO"', '20 GOTO 10', 'RUN'], out: Array(12).fill('HELLO') },
+    { name: 'Pascal', year: 1970, who: 'Никлаус Вирт', medium: 'tui', accent: [245, 195, 70],
+      facts: ['Учил структурному программированию', 'Turbo Pascal и Delphi стали хитами'], roots: ['ALGOL'],
+      code: ['program Hello;', 'var i: integer;', 'begin', '  for i := 1 to 3 do', "    writeln('Привет, Паскаль!');", 'end.'], out: Array(3).fill('Привет, Паскаль!') },
+    { name: 'C', year: 1972, who: 'Деннис Ритчи · Bell Labs', medium: 'term', phosphor: [80, 255, 120], accent: [165, 185, 210],
+      facts: ['На нём переписали Unix', 'Его синтаксис унаследовали C++, Java, C# и JS'], roots: ['Ассемблер', 'B'],
+      code: ['#include <stdio.h>', '', 'int main(void)', '{', '    printf("hello, world\\n");', '    return 0;', '}'], out: ['$ cc hello.c', '$ ./a.out', 'hello, world'] },
+    { name: 'Smalltalk', year: 1972, who: 'Алан Кэй · Xerox PARC', medium: 'gui', accent: [240, 125, 90],
+      facts: ['Всё есть объект, даже числа', 'Вдохновил ООП и оконные интерфейсы'], roots: ['Lisp', 'Simula'],
+      code: ['| sum |', 'sum := 0.', '1 to: 10 do: [:i | sum := sum + i].', 'Transcript show: sum printString.'], out: ['55'] },
+    { name: 'SQL', year: 1974, who: 'Дональд Чемберлин и Рэймонд Бойс · IBM', medium: 'term', phosphor: [255, 180, 60], accent: [80, 205, 225],
+      facts: ['Говоришь, что нужно, а не как это найти', 'Язык почти всех баз данных'], roots: ['реляционная алгебра'],
+      code: ['SELECT name, salary', 'FROM employees', 'WHERE salary > 50000', 'ORDER BY salary DESC;'], out: ['NAME        SALARY', '----------  ------', 'Иванова      72000', 'Петров       64000', '3 строки выбрано'] },
+    { name: 'C++', year: 1985, who: 'Бьёрн Страуструп · Bell Labs', medium: 'tui', accent: [95, 135, 245],
+      facts: ['Классы поверх скорости C', 'Игры, браузеры, движки'], roots: ['C', 'Simula'],
+      code: ['#include <iostream>', '', 'class Greeter {', 'public:', '    void hello() { std::cout << "Hello!\\n"; }', '};', '', 'int main() { Greeter().hello(); }'], out: ['Hello!'] },
+    { name: 'Perl', year: 1987, who: 'Ларри Уолл', medium: 'term', phosphor: [80, 255, 120], accent: [150, 160, 235],
+      facts: ['Регулярные выражения в сердце языка', 'Скотч, на котором держался ранний веб'], roots: ['C', 'sed и awk'],
+      code: ['while (my $line = <STDIN>) {', '    $line =~ s/cat/dog/g;', '    print $line if $line =~ /dog/;', '}'], out: ['$ perl pets.pl < pets.txt', 'my dog is cute', 'dogs and more dogs'] },
+    { name: 'Python', year: 1991, who: 'Гвидо ван Россум', medium: 'editor', file: 'greet.py', comment: '#', accent: [255, 212, 59],
+      facts: ['Отступы вместо фигурных скобок', 'Главный язык данных и ИИ'], roots: ['C', 'ABC'],
+      code: ['def greet(name):', '    return f"Привет, {name}!"', '', 'for n in ["Ада", "Гвидо"]:', '    print(greet(n))'], out: ['Привет, Ада!', 'Привет, Гвидо!'] },
+    { name: 'Java', year: 1995.4, who: 'Джеймс Гослинг · Sun', medium: 'editor', file: 'Hello.java', accent: [248, 152, 32],
+      facts: ['Пиши один раз, запускай везде', 'Android и корпоративный бэкенд'], roots: ['C++', 'Smalltalk'],
+      code: ['public class Hello {', '    public static void main(String[] args) {', '        System.out.println("Hello, JVM!");', '    }', '}'], out: ['Hello, JVM!'] },
+    { name: 'JavaScript', year: 1995.9, who: 'Брендан Айк · Netscape', medium: 'editor', file: 'app.js', accent: [247, 223, 30],
+      facts: ['Первую версию написали примерно за 10 дней', 'Работает в каждом браузере'], roots: ['Java', 'Lisp', 'Self'],
+      code: ['document.querySelector("button")', '  .addEventListener("click", () => {', '    console.log("Привет из браузера!");', '  });'], out: ['▶ клик по кнопке', 'Привет из браузера!'] },
+    { name: 'PHP', year: 1995.5, who: 'Расмус Лердорф', medium: 'editor', file: 'index.php', accent: [140, 150, 235],
+      facts: ['Код прямо внутри HTML-страницы', 'На нём WordPress и ранний Facebook'], roots: ['Perl', 'C'],
+      code: ['<?php', '$name = $_GET["name"] ?? "мир";', 'echo "<h1>Привет, $name!</h1>";'], out: ['<h1>Привет, мир!</h1>'] },
+    { name: 'C#', year: 2000, who: 'Андерс Хейлсберг · Microsoft', medium: 'editor', file: 'Program.cs', accent: [181, 126, 220],
+      facts: ['Ответ Microsoft на Java', 'Платформа .NET и игры на Unity'], roots: ['Java', 'C++'],
+      code: ['var langs = new[] { "C#", "F#", "VB" };', 'foreach (var l in langs.Where(x => x.EndsWith("#")))', '    Console.WriteLine(l);'], out: ['C#', 'F#'] },
+    { name: 'Go', year: 2009, who: 'Пайк, Томпсон, Гризмер · Google', medium: 'editor', file: 'main.go', accent: [0, 173, 216],
+      facts: ['Простота и горутины', 'На нём написаны Docker и Kubernetes'], roots: ['C', 'Pascal'],
+      code: ['func main() {', '    ch := make(chan string)', '    go func() { ch <- "привет" }()', '    fmt.Println(<-ch)', '}'], out: ['привет'] },
+    { name: 'Swift', year: 2014, who: 'Крис Латтнер · Apple', medium: 'editor', file: 'main.swift', accent: [250, 110, 60],
+      facts: ['Пришёл на смену Objective-C', 'Безопасные типы и опционалы'], roots: ['Python', 'C#', 'Objective-C'],
+      code: ['let langs = ["Swift", "Objective-C"]', 'for lang in langs where lang.count < 6 {', '    print("Привет, \\(lang)!")', '}'], out: ['Привет, Swift!'] },
+    { name: 'Rust', year: 2015, who: 'Грейдон Хоар · Mozilla', medium: 'editor', file: 'main.rs', accent: [222, 165, 132],
+      facts: ['Безопасная память без сборщика мусора', 'Годами самый любимый язык по опросам Stack Overflow'], roots: ['C++', 'OCaml'],
+      code: ['fn main() {', '    let words = vec!["безопасно", "быстро"];', '    for w in &words {', '        println!("{w}");', '    }', '}'], out: ['безопасно', 'быстро'] },
+    { name: 'Kotlin', year: 2016, who: 'JetBrains · Санкт-Петербург', medium: 'editor', file: 'Main.kt', accent: [160, 110, 255],
+      facts: ['Назван в честь острова Котлин', 'Google сделала его основным для Android'], roots: ['Java', 'C#'],
+      code: ['data class User(val name: String, val age: Int)', '', 'fun main() {', '    val users = listOf(User("Аня", 25), User("Олег", 31))', '    println(users.filter { it.age > 30 })', '}'], out: ['[User(name=Олег, age=31)]'] }
+  ];
+  const MEDIUM_NAME = { tape: 'перфолента', card: 'перфокарты', tty: 'телетайп', home: 'домашний компьютер', tui: 'текстовая среда', term: 'терминал', gui: 'графическая среда', editor: 'редактор кода' };
+  const lStart = i => L_T0 + i * L_DUR;
+  const IDX = Object.fromEntries(LANGS.map((l, i) => [l.name, i]));
+
+  // Per-character reveal times; leading indentation appears instantly.
+  LANGS.forEach((L, li) => {
+    const t0 = lStart(li) + TYPE_AT;
+    const chars = L.code.reduce((n, l) => n + l.trimStart().length, 0);
+    const pause = 0.06, cps = chars / (TYPE_END - TYPE_AT - pause * (L.code.length - 1));
+    let tt = t0, n = 0;
+    L.lineStart = []; L.charT = []; L.ticks = []; L.lineEnds = [];
+    L.code.forEach(line => {
+      L.lineStart.push(L.charT.length);
+      const indent = line.match(/^ */)[0].length;
+      for (let i = 0; i < line.length; i++) {
+        L.charT.push(tt);
+        if (i >= indent) { if (line[i] !== ' ' && n++ % 2 === 0) L.ticks.push(tt); tt += 1 / cps; }
+      }
+      L.lineEnds.push(tt);
+      tt += pause;
+    });
+    L.out = L.out || [];
+  });
+  // Visible code lines at master time t (returns [lines, caretLine, caretCol]).
+  function codeAt(L, t) {
+    let typed = 0; while (typed < L.charT.length && L.charT[typed] <= t) typed++;
+    const lines = []; let cl = 0, cc = 0;
+    L.code.forEach((line, li) => {
+      const s = L.lineStart[li];
+      const started = li === 0 || typed > s || (line === '' && t >= L.lineEnds[li - 1] + 0.03) || (typed === s && t >= (L.lineEnds[li - 1] || 0) + 0.03);
+      if (!started) return;
+      const v = line.slice(0, clamp(typed - s, 0, line.length));
+      lines.push(v); cl = li; cc = v.length;
+    });
+    return [lines, cl, cc, typed >= L.charT.length];
+  }
+  const outCount = (L, tau) => Math.min(L.out.length, Math.max(0, Math.floor((tau - OUT_AT) / (L.medium === 'home' ? 0.08 : OUT_STEP)) + 1));
+
+  /* =====================================================================
+     SYNTAX HIGHLIGHTING for modern editors and text IDEs
+     ===================================================================== */
+  const KW = new Set(['def', 'for', 'in', 'return', 'import', 'from', 'class', 'public', 'static', 'void', 'new', 'const', 'let', 'var', 'function', 'if', 'else', 'while', 'fn', 'func', 'go', 'mut', 'val', 'fun', 'data', 'echo', 'foreach', 'where', 'program', 'begin', 'end', 'do', 'to', 'integer', 'int', 'my', 'print', 'chan', 'make', 'include', 'true', 'false', 'null', 'nil']);
+  const BI = new Set(['println', 'printf', 'console', 'document', 'System', 'Console', 'fmt', 'String', 'Int', 'listOf', 'vec', 'writeln', 'std', 'cout', 'STDIN', 'langs', 'users']);
+  const COL = { kw: [244, 150, 120], bi: [169, 200, 255], str: [166, 216, 140], num: [198, 167, 255], fn: [255, 217, 168], muted: [142, 138, 151], ink: [230, 228, 222] };
+  function tokenize(line, comment = '//') {
+    const out = [];
+    if (line.trimStart().startsWith('#include')) { out.push({ text: line, col: 0, color: COL.kw }); return out; }
+    let code = line, cmt = '', q = null;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) { if (ch === '\\') i++; else if (ch === q) q = null; continue; }
+      if (ch === '"' || ch === "'") { q = ch; continue; }
+      if (line.startsWith(comment, i)) { code = line.slice(0, i); cmt = line.slice(i); break; }
+    }
+    const re = /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\$?[A-Za-z_]\w*!?)|(\d+(?:\.\d+)?)|(\s+)|(.)/g;
+    let m, afterDef = false;
+    while ((m = re.exec(code))) {
+      let color = null;
+      if (m[1]) color = COL.str;
+      else if (m[2]) { const w = m[2], nx = code[m.index + w.length]; color = KW.has(w) ? COL.kw : BI.has(w) ? COL.bi : (afterDef || nx === '(') ? COL.fn : COL.ink; afterDef = /^(def|fn|func|fun|class|program)$/.test(w); }
+      else if (m[3]) color = COL.num;
+      else if (m[5]) color = COL.muted;
+      if (color) out.push({ text: m[0], col: m.index, color });
+    }
+    if (cmt) out.push({ text: cmt, col: code.length, color: COL.muted });
+    return out;
+  }
+  function codeLine(text, x, y, cw, comment, mono) {
+    if (mono) { ctx.fillStyle = mono; ctx.fillText(text, x, y); return; }
+    for (const tk of tokenize(text, comment)) { ctx.fillStyle = rgba(tk.color, 1); ctx.fillText(tk.text, x + tk.col * cw, y); }
+  }
+
+  /* =====================================================================
+     ERA MEDIUMS (draw in screen-local coords 0..SW x 0..SH)
+     ===================================================================== */
+  function desk() {
+    const g = ctx.createLinearGradient(0, 0, 0, SH); g.addColorStop(0, '#2a211a'); g.addColorStop(1, '#17120e');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = 'rgba(255,255,255,0.025)'; for (let y = 6; y < SH; y += 14) ctx.fillRect(0, y, SW, 2);
+  }
+  // Teleprinter paper (shared by tape and tty).
+  function paper(x, y, w, h, lines, caret, t, greenbar) {
+    ctx.fillStyle = '#f2eedf'; ctx.fillRect(x, y, w, h);
+    if (greenbar) { ctx.fillStyle = 'rgba(120,180,120,0.18)'; for (let k = 0; k < h; k += 72) ctx.fillRect(x, y + k, w, 36); }
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; for (let k = 10; k < h; k += 24) { ctx.beginPath(); ctx.arc(x + 12, y + k, 4, 0, 7); ctx.arc(x + w - 12, y + k, 4, 0, 7); ctx.fill(); }
+    ctx.font = `500 22px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    const lh = 34, maxL = Math.floor((h - 30) / lh), from = Math.max(0, lines.length - maxL);
+    lines.slice(from).forEach((s, k) => { ctx.fillStyle = s.startsWith('=>') ? '#7a1f1f' : '#262420'; ctx.fillText(s, x + 34, y + 40 + k * lh); });
+    if (caret && blink(t)) { const li = Math.min(lines.length, maxL) - 1; ctx.fillStyle = '#262420'; ctx.fillRect(x + 36 + ctx.measureText(lines[lines.length - 1] || '').width, y + 44 + li * lh, 12, 3); }
+  }
+  function mTape(L, t, tau) {
+    desk();
+    const [lines, , , done] = codeAt(L, t);
+    paper(40, 20, SW - 80, 330, lines, !done, t, false);
+    // paper tape with 8-bit holes for every typed character
+    const stream = L.code.join('\n');
+    let typed = 0; while (typed < L.charT.length && L.charT[typed] <= t) typed++;
+    const ty = 390, th = 110;
+    ctx.fillStyle = '#e8dcae'; ctx.fillRect(0, ty, SW, th);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, ty, SW, 3); ctx.fillRect(0, ty + th - 3, SW, 3);
+    const head = SW - 160, step = 20;
+    for (let k = 0; k < 44; k++) {
+      const j = typed - 1 - k; if (j < 0) break;
+      const x = head - k * step, code = stream.charCodeAt(j) % 256;
+      for (let b = 0; b < 8; b++) if (code >> b & 1) { ctx.fillStyle = '#2a2116'; ctx.beginPath(); ctx.arc(x, ty + 16 + b * 11 + (b >= 3 ? 6 : 0), 4.2, 0, 7); ctx.fill(); }
+      ctx.fillStyle = 'rgba(42,33,22,0.6)'; ctx.beginPath(); ctx.arc(x, ty + 16 + 3 * 11 + 1, 2, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#3a3a40'; ctx.fillRect(head + 14, ty - 18, 110, th + 36);
+    glow(head + 14, ty + th / 2, 50, [255, 220, 150], 0.35 * (0.6 + 0.4 * Math.sin(tau * 20)));
+    txt('СЧИТЫВАТЕЛЬ', head + 69, ty + th + 6, `700 12px ${SANS}`, '#c9c2b5', 'center');
+  }
+  // Punched card template, rendered once.
+  const CARD_W = 880, CARD_H = 330, CARD_COLS = 72;
+  const cardTpl = document.createElement('canvas'); cardTpl.width = CARD_W; cardTpl.height = CARD_H;
+  {
+    const g = cardTpl.getContext('2d');
+    g.fillStyle = '#efe3c2'; g.beginPath(); g.moveTo(28, 0); g.lineTo(CARD_W, 0); g.lineTo(CARD_W, CARD_H); g.lineTo(0, CARD_H); g.lineTo(0, 28); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(130,95,50,0.42)'; g.font = '10px monospace'; g.textAlign = 'center';
+    for (let r = 0; r < 10; r++) for (let c = 0; c < CARD_COLS; c++) g.fillText(String(r), 34 + c * 11.6, 98 + r * 22);
+    g.fillStyle = 'rgba(130,95,50,0.5)'; g.fillRect(0, 48, CARD_W, 1);
+  }
+  function mCard(L, t, tau) {
+    desk();
+    const [lines, cl] = codeAt(L, t);
+    const holes = (s, x, y) => {
+      for (let i = 0; i < s.length && i < CARD_COLS; i++) {
+        if (s[i] === ' ') continue;
+        const code = s.charCodeAt(i), r1 = code % 12, r2 = (code >> 3) % 12;
+        [r1, r2].forEach(r => { ctx.fillStyle = '#1b140d'; ctx.fillRect(x + 30 + i * 11.6, y + 56 + r * 22, 7, 15); });
+      }
+      ctx.font = `600 18px ${MONO}`; ctx.fillStyle = '#3b2c18'; ctx.textAlign = 'left';
+      for (let i = 0; i < s.length && i < CARD_COLS; i++) ctx.fillText(s[i], x + 30 + i * 11.6, y + 32);
+    };
+    const nonEmpty = lines.map((s, k) => [s, k]).filter(([s]) => s.trim() !== '');
+    const cur = nonEmpty.length - 1;
+    for (let k = Math.max(0, cur - 3); k <= cur; k++) {
+      const back = cur - k, x = 40 + back * 14, y = 150 - back * 40;
+      ctx.save(); ctx.globalAlpha *= back ? 0.85 : 1;
+      ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 16; ctx.drawImage(cardTpl, x, y); ctx.restore();
+      holes(nonEmpty[k][0], x, y);
+    }
+    // the punch head moving along the current card
+    if (cur >= 0) {
+      const col = nonEmpty[cur][0].length;
+      ctx.fillStyle = 'rgba(40,40,46,0.9)'; ctx.fillRect(40 + 24 + col * 11.6, 150 - 26, 18, 26);
+    }
+    txt(`КАРТА ${Math.max(1, cur + 1)} / ${L.code.filter(s => s.trim()).length}`, SW - 40, 40, `700 20px ${MONO}`, '#d8ccb0', 'right');
+    void cl; void tau;
+  }
+  function mTty(L, t, tau) {
+    desk();
+    const [lines, , , done] = codeAt(L, t);
+    const shown = lines.slice();
+    L.out.slice(0, outCount(L, tau)).forEach(o => shown.push('=> ' + o));
+    paper(120, 0, SW - 240, SH - 40, shown, !done, t, true);
+    ctx.fillStyle = '#3a3a40'; ctx.fillRect(80, SH - 46, SW - 160, 46);
+    txt('ТЕЛЕТАЙП', SW / 2, SH - 16, `700 16px ${SANS}`, '#c9c2b5', 'center');
+  }
+  function mHome(L, t, tau) {
+    ctx.fillStyle = '#6c5eb5'; ctx.fillRect(0, 0, SW, SH);
+    const ix = 60, iy = 50, iw = SW - 120, ih = SH - 100;
+    ctx.fillStyle = '#352879'; ctx.fillRect(ix, iy, iw, ih);
+    const lines = ['   БЕЙСИК  ·  ПАМЯТЬ 32К', '', 'ГОТОВ.'];
+    const [code] = codeAt(L, t);
+    code.forEach(s => lines.push(s));
+    L.out.slice(0, outCount(L, tau)).forEach(o => lines.push(o));
+    const lh = 30, maxL = Math.floor((ih - 20) / lh), from = Math.max(0, lines.length - maxL);
+    ctx.font = `700 24px ${MONO}`; ctx.fillStyle = '#a7a2f0'; ctx.textAlign = 'left';
+    lines.slice(from).forEach((s, k) => ctx.fillText(s, ix + 20, iy + 36 + k * lh));
+    if (blink(t)) { const k = Math.min(lines.length, maxL); ctx.fillRect(ix + 20, iy + 14 + k * lh, 16, 26); }
+  }
+  function mTui(L, t, tau) {
+    ctx.fillStyle = '#0000a8'; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = '#aaaaaa'; ctx.fillRect(0, 0, SW, 30);
+    txt(' Файл  Правка  Поиск  Запуск  Компиляция  Отладка  Окно', 10, 21, `500 18px ${MONO}`, '#000');
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(12, 44, SW - 24, SH - 84); ctx.strokeRect(18, 50, SW - 36, SH - 96);
+    const fname = L.name === 'Pascal' ? 'HELLO.PAS' : 'HELLO.CPP';
+    ctx.fillStyle = '#0000a8'; ctx.fillRect(SW / 2 - 80, 38, 160, 18);
+    txt(`[ ${fname} ]`, SW / 2, 53, `700 18px ${MONO}`, '#ffffff', 'center');
+    const [lines, cl, cc] = codeAt(L, t);
+    ctx.font = `500 22px ${MONO}`; ctx.textAlign = 'left';
+    const cw = ctx.measureText('M').width;
+    lines.forEach((s, k) => codeLine(s, 40, 92 + k * 32, cw, '//', '#ffff55'));
+    if (blink(t)) { ctx.fillStyle = '#ffff55'; ctx.fillRect(40 + cc * cw, 96 + cl * 32, cw, 4); }
+    ctx.fillStyle = '#00aaaa'; ctx.fillRect(0, SH - 30, SW, 30);
+    txt(' F1 Помощь  F2 Сохранить  F9 Компиляция  Ctrl+F9 Запуск', 10, SH - 9, `500 17px ${MONO}`, '#000');
+    const n = outCount(L, tau);
+    if (n > 0) {
+      const ox = 150, oy = 300, ow = SW - 300, oh = 150;
+      ctx.fillStyle = '#000'; ctx.fillRect(ox, oy, ow, oh); ctx.strokeStyle = '#aaaaaa'; ctx.strokeRect(ox, oy, ow, oh);
+      txt('Экран вывода', ox + 12, oy + 22, `700 16px ${MONO}`, '#aaaaaa');
+      L.out.slice(0, n).forEach((o, k) => txt(o, ox + 12, oy + 54 + k * 28, `500 20px ${MONO}`, '#cccccc'));
+    }
+  }
+  function mTerm(L, t, tau) {
+    ctx.fillStyle = '#050805'; ctx.fillRect(0, 0, SW, SH);
+    const ph = L.phosphor, col = rgba(ph, 1);
+    const [lines, cl, cc] = codeAt(L, t);
+    ctx.save(); ctx.shadowColor = rgba(ph, 0.7); ctx.shadowBlur = 8;
+    ctx.font = `500 23px ${MONO}`; ctx.textAlign = 'left'; ctx.fillStyle = col;
+    const cw = ctx.measureText('M').width, lh = 32;
+    lines.forEach((s, k) => ctx.fillText(s, 34, 50 + k * lh));
+    const n = outCount(L, tau), base = 50 + (L.code.length + 1) * lh;
+    L.out.slice(0, n).forEach((o, k) => ctx.fillText(o, 34, base + k * lh));
+    if (blink(t)) {
+      if (n > 0) ctx.fillRect(34, base + (n - 1) * lh + 8, 14, 4);
+      else ctx.fillRect(34 + cc * cw, 50 + cl * lh + 6, 14, 4);
+    }
+    ctx.restore();
+    scanlines(0.3);
+  }
+  function mGui(L, t, tau) {
+    // dithered desktop
+    ctx.fillStyle = '#b8b8b8'; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = '#8a8a8a'; for (let y = 0; y < SH; y += 4) for (let x = (y / 4) % 2 ? 2 : 0; x < SW; x += 4) ctx.fillRect(x, y, 2, 2);
+    const win = (x, y, w, h, title) => {
+      ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, 30); ctx.fillStyle = '#000';
+      for (let k = 6; k < 26; k += 4) ctx.fillRect(x + 4, y + k, w - 8, 1.5);
+      ctx.font = `700 18px ${SANS}`; const tw = ctx.measureText(title).width + 20;
+      ctx.fillStyle = '#fff'; ctx.fillRect(x + w / 2 - tw / 2, y + 4, tw, 22);
+      txt(title, x + w / 2, y + 21, `700 18px ${SANS}`, '#000', 'center');
+      ctx.fillStyle = '#000'; ctx.fillRect(x, y + 30, w, 2);
+    };
+    win(40, 40, 640, 300, 'Рабочая область');
+    const [lines, cl, cc] = codeAt(L, t);
+    ctx.font = `500 22px ${MONO}`; ctx.textAlign = 'left'; ctx.fillStyle = '#000';
+    const cw = ctx.measureText('M').width;
+    lines.forEach((s, k) => ctx.fillText(s, 60, 100 + k * 36));
+    if (blink(t)) ctx.fillRect(60 + cc * cw, 80 + cl * 36, 2, 26);
+    const n = outCount(L, tau);
+    if (tau > 0.8) {
+      win(520, 300, 400, 200, 'Протокол');
+      if (n > 0) txt(L.out[0], 540, 370, `500 26px ${MONO}`, '#000');
+    }
+    // pointer
+    const px = lerp(800, 600, prog(tau, 0.5, 4)), py = lerp(120, 380, prog(tau, 3.5, 4.9));
+    ctx.save(); ctx.translate(px, py); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 22); ctx.lineTo(6, 17); ctx.lineTo(10, 26); ctx.lineTo(13, 25); ctx.lineTo(9, 16); ctx.lineTo(16, 16); ctx.closePath();
+    ctx.fillStyle = '#000'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.restore();
+  }
+  function mEditor(L, t, tau) {
+    ctx.fillStyle = '#1b1d23'; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = '#14161b'; ctx.fillRect(0, 0, SW, 44);
+    ctx.fillStyle = '#1b1d23'; ctx.fillRect(16, 8, 200, 36);
+    ctx.fillStyle = rgba(L.accent, 1); ctx.fillRect(16, 8, 200, 2);
+    txt(L.file, 34, 32, `500 18px ${MONO}`, '#d6d3cc');
+    const [lines, cl, cc] = codeAt(L, t);
+    ctx.font = `400 22px ${MONO}`; ctx.textAlign = 'left';
+    const cw = ctx.measureText('M').width, lh = 34, top = 90, x0 = 70;
+    lines.forEach((s, k) => {
+      txt(String(k + 1), 40, top + k * lh, `400 22px ${MONO}`, 'rgba(142,138,151,0.6)', 'right');
+      ctx.font = `400 22px ${MONO}`; ctx.textAlign = 'left';
+      codeLine(s, x0, top + k * lh, cw, L.comment || '//');
+    });
+    if (blink(t) || tau < TYPE_END) { ctx.fillStyle = rgba(L.accent, 1); ctx.fillRect(x0 + cc * cw + 1, top + cl * lh - 22, 3, 28); }
+    const oy = 360;
+    ctx.fillStyle = '#121418'; ctx.fillRect(0, oy, SW, SH - oy);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(0, oy, SW, 1.5);
+    setLS(4); txt(L.name === 'JavaScript' ? 'КОНСОЛЬ' : 'ВЫВОД', 30, oy + 34, `700 15px ${SANS}`, 'rgba(142,138,151,1)'); setLS(0);
+    const n = outCount(L, tau);
+    L.out.slice(0, n).forEach((o, k) => txt(o, 30, oy + 76 + k * 32, `400 21px ${MONO}`, '#d6f5d0'));
+  }
+  const MEDIUMS = { tape: mTape, card: mCard, tty: mTty, home: mHome, tui: mTui, term: mTerm, gui: mGui, editor: mEditor };
+
+  /* =====================================================================
+     INFO CARD, TIMELINE, FAMILY TREE
+     ===================================================================== */
+  function infoCard(L, i, tau) {
+    const x = 1130, y = 140, w = 690, h = 640;
+    ga(eOut(prog(tau, 0.1, 0.5)));
+    rr(x, y, w, h, 18); ctx.fillStyle = 'rgba(14,15,22,0.88)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1.5; ctx.stroke();
+    const yp = eOut(prog(tau, 0.15, 0.6));
+    ga(yp); ctx.save(); ctx.shadowColor = rgba(L.accent, 0.55); ctx.shadowBlur = 28;
+    txt(String(Math.floor(L.year)), x + 40, y + 140 + (1 - yp) * 16, `900 116px ${MONO}`, rgba(L.accent, 1)); ctx.restore();
+    const np = eOut(prog(tau, 0.3, 0.75));
+    ga(np); fitFont(L.name, 750, 60, SANS, w - 80); ctx.fillStyle = rgba(C.ink, 1); ctx.textAlign = 'left'; ctx.fillText(L.name, x + 42, y + 214 + (1 - np) * 10);
+    ga(eOut(prog(tau, 0.45, 0.9))); fitFont(L.who, 500, 26, SANS, w - 84); ctx.fillStyle = rgba(C.muted, 1); ctx.fillText(L.who, x + 42, y + 256);
+    ctx.fillStyle = rgba(L.accent, 0.45); ctx.fillRect(x + 42, y + 282, w - 84, 2);
+    L.facts.forEach((f, k) => {
+      const p = eOut(prog(tau, FACT_AT[k], FACT_AT[k] + 0.45)); if (p <= 0) return;
+      ga(p); ctx.fillStyle = rgba(L.accent, 1); ctx.fillRect(x + 44, y + 322 + k * 96, 12, 12);
+      ctx.font = `500 30px ${SANS}`; ctx.fillStyle = rgba(C.ink, 0.95);
+      wrap(f, w - 130).slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 72 + (1 - p) * 20, y + 336 + k * 96 + j * 38));
+    });
+    const rp = eOut(prog(tau, ROOTS_AT, ROOTS_AT + 0.4));
+    if (rp > 0) {
+      ga(rp); setLS(5); txt('КОРНИ', x + 42, y + 548, `700 18px ${SANS}`, rgba(C.warm, 1)); setLS(0);
+      let cx = x + 42;
+      L.roots.forEach((r, k) => {
+        const p = eOut(prog(tau, ROOTS_AT + 0.1 + k * 0.15, ROOTS_AT + 0.45 + k * 0.15)); if (p <= 0) return;
+        const known = r in IDX, col = known ? LANGS[IDX[r]].accent : C.muted;
+        ctx.font = `600 22px ${SANS}`; const bw = ctx.measureText(r).width + 32;
+        ga(rp * p); rr(cx, y + 566, bw, 40, 20); ctx.fillStyle = rgba(col, known ? 0.16 : 0.08); ctx.fill(); ctx.strokeStyle = rgba(col, known ? 0.7 : 0.35); ctx.lineWidth = 1.5; ctx.stroke();
+        txt(r, cx + bw / 2, y + 593, `600 22px ${SANS}`, known ? rgba(C.ink, 1) : rgba(C.muted, 1), 'center');
+        cx += bw + 12;
+      });
+    }
+  }
+
+  const TL = { x0: 160, x1: 1760, y: 912, from: 1945, to: 2020 };
+  const yearX = yr => lerp(TL.x0, TL.x1, (yr - TL.from) / (TL.to - TL.from));
+  function timeline(t) {
+    const grow = eOut(prog(t, 4.6, 5.8)); if (grow <= 0) return;
+    ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(TL.x0, TL.y - 1, (TL.x1 - TL.x0) * grow, 2);
+    for (let yr = 1950; yr <= 2020; yr += 10) {
+      const x = yearX(yr); if (x > TL.x0 + (TL.x1 - TL.x0) * grow) continue;
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(x - 1, TL.y + 6, 2, 10);
+      txt(String(yr), x, TL.y + 42, `500 20px ${SANS}`, rgba(C.muted, 1), 'center');
+    }
+    let cur = -1, head = TL.from;
+    if (t >= L_T0 - 0.3 && t < OUTRO_T0) {
+      cur = clamp(Math.floor((t - L_T0 + 0.3) / L_DUR), 0, LANGS.length - 1);
+      head = lerp(cur > 0 ? LANGS[cur - 1].year : TL.from, LANGS[cur].year, eInOut(prog(t - lStart(cur), -0.3, 0.6)));
+    } else if (t >= OUTRO_T0) head = TL.to;
+    if (t >= L_T0 - 0.3) {
+      const hx = yearX(head), pg = ctx.createLinearGradient(TL.x0, 0, hx, 0);
+      pg.addColorStop(0, rgba(C.accent, 0.2)); pg.addColorStop(1, rgba(cur >= 0 ? LANGS[cur].accent : C.accent, 1));
+      ctx.globalAlpha = 1; ctx.fillStyle = pg; ctx.fillRect(TL.x0, TL.y - 1.5, hx - TL.x0, 3);
+    }
+    LANGS.forEach((L, i) => {
+      const x = yearX(L.year), ap = prog(t, 5.6 + i * 0.05, 5.9 + i * 0.05); if (ap <= 0) return;
+      const reached = t >= L_T0 - 0.3 && yearX(head) >= x - 0.5, active = i === cur;
+      ctx.globalAlpha = ap;
+      if (active) glow(x, TL.y, 32, L.accent, 0.5);
+      ctx.beginPath(); ctx.arc(x, TL.y, active ? 9 : 5.5, 0, 7);
+      if (reached) { ctx.fillStyle = rgba(L.accent, 1); ctx.fill(); }
+      else { ctx.fillStyle = '#0c0c12'; ctx.fill(); ctx.strokeStyle = rgba(L.accent, 0.6); ctx.lineWidth = 2; ctx.stroke(); }
+      if (active) txt(L.name, x, TL.y - 22, `700 20px ${SANS}`, rgba(L.accent, 1), 'center');
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // Family tree: x by year, manual lanes keep labels apart.
+  const LANE = { 'Ассемблер': 2, Fortran: 1, Lisp: 3, COBOL: 0, BASIC: 1, Pascal: 0, C: 2, Smalltalk: 3, SQL: 4, 'C++': 1, Perl: 3, Python: 2, Java: 0, JavaScript: 3, PHP: 4, 'C#': 1, Go: 2, Swift: 3, Rust: 0, Kotlin: 1 };
+  const laneY = l => 330 + l * 112;
+  const TREE_EDGES = [];
+  LANGS.forEach((L, i) => L.roots.forEach(r => { if (r in IDX) TREE_EDGES.push([IDX[r], i]); }));
+  function drawTree(t) {
+    const tp = t - OUTRO_T0;
+    const p1 = eOut(prog(tp, 0.2, 0.8));
+    ga(p1); ctx.save(); ctx.shadowColor = rgba(C.accent, 0.5); ctx.shadowBlur = 30;
+    txt('Языки рождают языки', 960, 170 + (1 - p1) * 20, `750 84px ${SANS}`, rgba(C.ink, 1), 'center'); ctx.restore();
+    const p2 = eOut(prog(tp, 0.7, 1.2));
+    ga(p2); txt('Каждый новый язык берёт лучшее у предков', 960, 228, `500 34px ${SANS}`, rgba(C.muted, 1), 'center');
+    const pos = i => [yearX(LANGS[i].year), laneY(LANE[LANGS[i].name])];
+    // edges, drawn in order of the child's birth
+    TREE_EDGES.forEach(([a, b], k) => {
+      const p = eInOut(prog(tp, 1.4 + k * 0.12, 2.2 + k * 0.12)); if (p <= 0) return;
+      const [x1, y1] = pos(a), [x2, y2] = pos(b), mx = (x1 + x2) / 2;
+      ctx.save(); ga(0.55);
+      const g = ctx.createLinearGradient(x1, 0, x2, 0); g.addColorStop(0, rgba(LANGS[a].accent, 1)); g.addColorStop(1, rgba(LANGS[b].accent, 1));
+      ctx.strokeStyle = g; ctx.lineWidth = 2.5; ctx.setLineDash([2000 * p, 4000]);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.bezierCurveTo(mx, y1, mx, y2, x2, y2); ctx.stroke(); ctx.restore();
+    });
+    LANGS.forEach((L, i) => {
+      const p = eBack(prog(tp, 0.6 + i * 0.07, 0.95 + i * 0.07)); if (p <= 0) return;
+      const [x, y] = pos(i);
+      ctx.font = `700 22px ${SANS}`; const bw = ctx.measureText(L.name).width + 30;
+      ctx.save(); ctx.translate(x, y); ctx.scale(p, p); ga(clamp(p));
+      rr(-bw / 2, -20, bw, 40, 20); ctx.fillStyle = '#101219'; ctx.fill(); ctx.strokeStyle = rgba(L.accent, 0.9); ctx.lineWidth = 2; ctx.stroke();
+      txt(L.name, 0, 8, `700 22px ${SANS}`, rgba(L.accent, 1), 'center');
+      ctx.restore();
+    });
+    const p3 = eOut(prog(tp, 6.5, 7.2));
+    ga(p3); txt('Какой язык будет следующим?', 960, 860 - 4 + (1 - p3) * 12, `600 40px ${SANS}`, rgba(C.warm, 1), 'center');
+  }
+
+  /* =====================================================================
+     SCENES
+     ===================================================================== */
+  const BYTES = '01001000 01101001';
+  function drawIntro(t) {
+    const out = eIn(prog(t, 7.2, 8.0));
+    ctx.translate(0, -out * 30);
+    // "first there were zeros and ones"
+    const b = 1 - prog(t, 2.8, 3.3);
+    if (b > 0) {
+      ga(eOut(prog(t, 0.3, 0.8)) * b); txt('Сначала были только нули и единицы', 960, 400, `500 42px ${SANS}`, rgba(C.muted, 1), 'center');
+      const n = Math.floor(clamp((t - 0.8) * 11, 0, BYTES.length));
+      ga(b); txt(BYTES.slice(0, n), 960, 520, `700 84px ${MONO}`, rgba(C.accent, 1), 'center');
+      const hp = eOut(prog(t, 2.4, 2.8));
+      if (hp > 0) { ga(hp * b); txt('= «Hi»', 960, 610, `600 44px ${MONO}`, rgba(C.warm, 1), 'center'); }
+    }
+    const p1 = eOut(prog(t, 3.2, 3.9));
+    ga(p1 * (1 - out)); ctx.save(); ctx.shadowColor = rgba(C.accent, 0.5); ctx.shadowBlur = 34;
+    txt('История языков программирования', 960, 450 + (1 - p1) * 30, `750 92px ${SANS}`, rgba(C.ink, 1), 'center'); ctx.restore();
+    const p2 = eOut(prog(t, 3.8, 4.4));
+    ga(p2 * (1 - out)); txt('От ассемблера до Kotlin за 3 минуты', 960, 530 + (1 - p2) * 16, `500 42px ${SANS}`, rgba(C.muted, 1), 'center');
+  }
+  function drawLang(L, i, t) {
+    const tau = t - lStart(i);
+    const slide = (1 - eOut(prog(tau, -0.3, 0.45))) * 120 - eIn(prog(tau, 7.55, 8.15)) * 120;
+    ctx.translate(slide, 0);
+    ga(eOut(prog(tau, -0.2, 0.4))); setLS(5);
+    txt(`${String(i + 1).padStart(2, '0')} / ${LANGS.length}  ·  ${MEDIUM_NAME[L.medium]}`, SX, 104, `600 22px ${SANS}`, rgba(C.muted, 1)); setLS(0);
+    ga(1);
+    rr(SX - 10, SY - 10, SW + 20, SH + 20, 16); ctx.fillStyle = '#121218'; ctx.fill(); ctx.strokeStyle = rgba(L.accent, 0.45); ctx.lineWidth = 2; ctx.stroke();
+    ctx.save(); rr(SX, SY, SW, SH, 8); ctx.clip(); ctx.translate(SX, SY);
+    MEDIUMS[L.medium](L, t, tau);
+    ctx.restore();
+    ga(1 - prog(tau, 0, 0.35)); ctx.fillStyle = '#000'; ctx.fillRect(SX, SY, SW, SH);
+    infoCard(L, i, tau);
+  }
+
+  /* =====================================================================
+     FRAME RENDERER
+     ===================================================================== */
+  const DUST = Array.from({ length: 50 }, () => ({ x: rng() * W, y: rng() * H, r: .6 + rng() * 1.6, s: 4 + rng() * 12, ph: rng() * 6.28, a: .08 + rng() * .22 }));
+  const grain = document.createElement('canvas'); grain.width = grain.height = 220;
+  { const g = grain.getContext('2d'), img = g.createImageData(220, 220); for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; } g.putImageData(img, 0, 0); }
+  const grainPattern = ctx.createPattern(grain, 'repeat');
+  function sceneTint(t) {
+    let c = C.accent;
+    LANGS.forEach((L, i) => { c = mix(c, L.accent, prog(t, lStart(i) - 0.4, lStart(i) + 0.4)); });
+    return mix(c, C.accent, prog(t, OUTRO_T0 - 0.3, OUTRO_T0 + 0.5));
+  }
+  function render(t) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    ctx.fillStyle = '#08080b'; ctx.fillRect(0, 0, W, H);
+    const tint = sceneTint(t);
+    const bg = ctx.createRadialGradient(620, 420, 0, 620, 420, 1100);
+    bg.addColorStop(0, rgba(tint, 0.12)); bg.addColorStop(0.55, rgba(tint, 0.04)); bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    for (const d of DUST) {
+      const y = ((d.y - t * d.s) % H + H) % H, x = d.x + Math.sin(t * 0.3 + d.ph) * 12;
+      ctx.globalAlpha = d.a * (0.6 + 0.4 * Math.sin(t * 1.3 + d.ph)); ctx.fillStyle = rgba(tint, 1); ctx.beginPath(); ctx.arc(x, y, d.r, 0, 7); ctx.fill();
+    }
+    const ia = 1 - prog(t, 7.5, 8.1);
+    if (ia > 0) { A = ia; ctx.save(); drawIntro(t); ctx.restore(); }
+    LANGS.forEach((L, i) => {
+      const tau = t - lStart(i);
+      if (tau < -0.3 || tau > 8.15) return;
+      A = Math.min(prog(tau, -0.3, 0.35), 1 - prog(tau, 7.55, 8.15));
+      if (A <= 0.001) return;
+      ctx.save(); drawLang(L, i, t); ctx.restore();
+    });
+    const oa = prog(t, OUTRO_T0 - 0.1, OUTRO_T0 + 0.4);
+    if (oa > 0) { A = oa; ctx.save(); drawTree(t); ctx.restore(); }
+    A = 1; ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    timeline(t);
+    const vg = ctx.createRadialGradient(960, 540, 460, 960, 540, 1180);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    const gx = reduceMotion ? 0 : Math.random() * 220, gy = reduceMotion ? 0 : Math.random() * 220;
+    ctx.translate(-gx, -gy); ctx.globalAlpha = 0.03; ctx.fillStyle = grainPattern; ctx.fillRect(0, 0, W + 220, H + 220);
+    ctx.restore();
+    const fade = Math.max(1 - prog(t, 0, 0.3), prog(t, 179, 180));
+    if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  }
+
+  /* =====================================================================
+     AUDIO (Web Audio API only, all synthesized). Typing sounds follow the
+     medium: punch for tape and cards, clack for the teletype, soft keys
+     for terminals and editors. Events share the visuals' timings.
+     ===================================================================== */
+  let actx = null, master = null, noiseBuf = null, bus = null;
+  const vol = { level: 0.8, muted: false };
+  const effVol = () => (vol.muted ? 0 : vol.level * vol.level);
+  function initAudio() {
+    if (actx) return;
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    actx = new AC();
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+    master = actx.createGain(); master.gain.value = effVol(); master.connect(comp); comp.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  function makeBuses() {
+    const run = actx.createGain(); run.connect(master);
+    const music = actx.createGain(); music.gain.value = 0.9; music.connect(run);
+    const sfx = actx.createGain(); sfx.connect(run);
+    return { run, music, sfx };
+  }
+  const gainTo = (dest, v = 0) => { const g = actx.createGain(); g.gain.value = v; g.connect(dest); return g; };
+  const osc = (type, freq, at, stop) => { const o = actx.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, at); o.start(at); o.stop(stop); return o; };
+  const noise = (at, stop) => { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(at, Math.random() * 1.5); s.stop(stop); return s; };
+  const filt = (type, freq, q = 1) => { const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; return f; };
+  function perc(g, at, peak, attack, decay) { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + attack); g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay); }
+  function note(at, freq, dur, type = 'sine', level = 0.05) {
+    const g = gainTo(bus.sfx); g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(level, at + 0.006);
+    g.gain.setValueAtTime(level, at + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    const f = filt('lowpass', type === 'square' ? 2600 : 8000); f.connect(g); osc(type, freq, at, at + dur + 0.02).connect(f);
+  }
+  function key(at, kind) {
+    const g = gainTo(bus.sfx);
+    if (kind === 'punch') { perc(g, at, 0.1, 0.002, 0.05); const f = filt('bandpass', 700, 2); f.connect(g); noise(at, at + 0.08).connect(f); const g2 = gainTo(bus.sfx); perc(g2, at, 0.06, 0.002, 0.06); osc('sine', 110, at, at + 0.1).connect(g2); }
+    else if (kind === 'clack') { perc(g, at, 0.09, 0.001, 0.04); const f = filt('bandpass', 1900, 2.5); f.connect(g); noise(at, at + 0.06).connect(f); }
+    else { perc(g, at, 0.045 + Math.random() * 0.02, 0.002, 0.03); const f = filt('bandpass', kind === 'soft' ? 1800 : 2800 + Math.random() * 1500, 2.2); f.connect(g); noise(at, at + 0.05).connect(f); }
+  }
+  function bell(at) { note(at, 2093, 0.6, 'sine', 0.04); note(at, 3136, 0.4, 'sine', 0.015); }
+  function whoosh(at, dur) {
+    const g = gainTo(bus.sfx); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.12, at + dur * 0.55); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('bandpass', 300, 0.9); f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(2400, at + dur * 0.55); f.frequency.exponentialRampToValueAtTime(500, at + dur);
+    f.connect(g); noise(at, at + dur + 0.05).connect(f);
+  }
+  function ambient(at, dur) {
+    const end = at + dur, g = gainTo(bus.music);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.035, at + 2); g.gain.setValueAtTime(0.035, end - 1.5); g.gain.linearRampToValueAtTime(0, end);
+    const f = filt('lowpass', 440, 1); f.connect(g);
+    const lfo = osc('sine', 0.05, at, end), amt = actx.createGain(); amt.gain.value = 180; lfo.connect(amt); amt.connect(f.frequency);
+    [55, 82.41, 110].forEach(fr => [-7, 7].forEach(det => { const o = osc('sawtooth', fr, at, end); o.detune.value = det; o.connect(f); }));
+  }
+  function kick(at) { const g = gainTo(bus.music); perc(g, at, 0.2, 0.003, 0.3); const o = osc('sine', 120, at, at + 0.4); o.frequency.exponentialRampToValueAtTime(42, at + 0.15); o.connect(g); }
+  function hat(at) { const g = gainTo(bus.music); perc(g, at, 0.013, 0.002, 0.045); const f = filt('highpass', 7000, 0.7); f.connect(g); noise(at, at + 0.07).connect(f); }
+  function chord(at, dur, freqs) {
+    const g = gainTo(bus.music); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.038, at + 0.4); g.gain.setValueAtTime(0.038, at + dur - 0.5); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('lowpass', 900, 0.6); f.connect(g);
+    freqs.forEach(fr => [-6, 6].forEach(det => { const o = osc('triangle', fr, at, at + dur + 0.05); o.detune.value = det; o.connect(f); }));
+    const b = gainTo(bus.music); b.gain.setValueAtTime(0, at); b.gain.linearRampToValueAtTime(0.075, at + 0.2); b.gain.setValueAtTime(0.075, at + dur - 0.4); b.gain.linearRampToValueAtTime(0, at + dur);
+    osc('sine', freqs[0] / 2, at, at + dur + 0.05).connect(b);
+  }
+  function swell(at, dur) {
+    const g = gainTo(bus.music); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.11, at + dur); g.gain.linearRampToValueAtTime(0, at + dur + 0.06);
+    const f = filt('lowpass', 200, 3); f.frequency.setValueAtTime(200, at); f.frequency.exponentialRampToValueAtTime(3600, at + dur); f.connect(g);
+    [110, 164.81, 220].forEach(fr => { const o = osc('sawtooth', fr, at, at + dur + 0.1); o.frequency.exponentialRampToValueAtTime(fr * 1.335, at + dur); o.connect(f); });
+  }
+  function hit(at) {
+    const kg = gainTo(bus.sfx); perc(kg, at, 0.8, 0.003, 0.6); const k = osc('sine', 140, at, at + 0.8); k.frequency.exponentialRampToValueAtTime(38, at + 0.35); k.connect(kg);
+    const sg = gainTo(bus.sfx); perc(sg, at, 0.09, 0.01, 2.6); [220, 277.18, 329.63, 440, 554.37].forEach(fr => osc('triangle', fr, at, at + 2.8).connect(sg));
+  }
+  const TYPE_KIND = { tape: 'punch', card: 'punch', tty: 'clack', home: 'soft', tui: 'soft', term: 'soft', gui: 'key', editor: 'key' };
+  const ERA_WAVE = i => (i < 5 ? 'square' : i < 11 ? 'triangle' : 'sine');
+  const PROG = [[220, 261.63, 329.63], [174.61, 220, 261.63], [261.63, 329.63, 392], [196, 246.94, 293.66]]; // Am F C G
+  const EVENTS = [];
+  const ev = (t, play) => EVENTS.push({ t, play });
+  for (let k = 0; k < BYTES.length; k++) if (BYTES[k] !== ' ') { const bit = BYTES[k]; ev(0.8 + k / 11, at => note(at, bit === '1' ? 880 : 660, 0.06, 'square', 0.03)); }
+  ev(2.4, at => [523.25, 659.25].forEach((f, k) => note(at + k * 0.08, f, 0.3, 'triangle', 0.05)));
+  ev(3.0, at => swell(at, 0.3));
+  ev(3.25, at => [261.63, 329.63, 392, 523.25].forEach((f, k) => note(at + k * 0.09, f, 1.2, 'triangle', 0.05)));
+  LANGS.forEach((_, k) => ev(5.6 + k * 0.05, at => note(at, 440 * Math.pow(2, (k % 12) / 12), 0.1, 'triangle', 0.025)));
+  for (let t = L_T0, k = 0; t < OUTRO_T0; t += 4, k++) { const fr = PROG[k % 4]; ev(t, at => chord(at, 4.3, fr)); }
+  for (let t = L_T0; t < OUTRO_T0; t += 1) { ev(t, at => kick(at)); ev(t + 0.5, at => hat(at)); }
+  LANGS.forEach((L, i) => {
+    const T = lStart(i), kind = TYPE_KIND[L.medium], wave = ERA_WAVE(i);
+    ev(T - 0.3, at => whoosh(at, 0.55));
+    ev(T + 0.1, at => [523.25, 659.25, 783.99].forEach((f, k) => note(at + k * 0.07, f * (i % 2 ? 0.75 : 1), 0.5, wave, wave === 'square' ? 0.025 : 0.045)));
+    L.ticks.forEach(s => ev(s, at => key(at, kind)));
+    if (L.medium === 'tty') L.lineEnds.forEach(s => ev(s + 0.02, at => bell(at)));
+    FACT_AT.forEach((s, k) => ev(T + s, at => note(at, 880 + k * 110, 0.3, 'sine', 0.035)));
+    ev(T + ROOTS_AT, at => note(at, 659.25, 0.35, 'sine', 0.035));
+    L.out.forEach((_, k) => { if (L.medium === 'home' ? k % 3 === 0 : true) ev(T + OUT_AT + k * (L.medium === 'home' ? 0.08 : OUT_STEP), at => note(at, 1046.5 + (k % 4) * 60, 0.08, wave, 0.025)); });
+  });
+  ev(OUTRO_T0 - 0.3, at => whoosh(at, 0.6));
+  LANGS.forEach((_, k) => ev(OUTRO_T0 + 0.6 + k * 0.07, at => note(at, 440 * Math.pow(2, (k % 12) / 12), 0.12, 'triangle', 0.03)));
+  TREE_EDGES.forEach((_, k) => { if (k % 2 === 0) ev(OUTRO_T0 + 1.4 + k * 0.12, at => note(at, 1318.5, 0.15, 'sine', 0.02)); });
+  ev(OUTRO_T0 + 5.2, at => swell(at, 1.3));
+  ev(OUTRO_T0 + 6.5, at => hit(at));
+  EVENTS.sort((a, b) => a.t - b.t);
+
+  /* =====================================================================
+     MASTER TIMELINE
+     ===================================================================== */
+  const state = { running: false, t0: 0, perf0: 0, next: 0 };
+  const clock = () => (actx ? actx.currentTime - state.t0 : (performance.now() - state.perf0) / 1000);
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  function scheduleAudio(t) {
+    if (!actx) return;
+    while (state.next < EVENTS.length && EVENTS[state.next].t < t + 0.25) {
+      const e = EVENTS[state.next++];
+      if (e.t >= t - 0.05) e.play(state.t0 + e.t);
+    }
+  }
+  function updateHUD(t) {
+    barEl.style.width = (t / DURATION * 100) + '%';
+    timerEl.textContent = `${fmt(Math.min(t, DURATION))} / ${fmt(DURATION)}`;
+    trackEl.setAttribute('aria-valuenow', Math.floor(t));
+  }
+  function start() {
+    if (state.running) return;
+    state.running = true; overlay.hidden = true;
+    initAudio(); state.next = 0;
+    if (actx) {
+      if (actx.state === 'suspended') actx.resume();
+      if (bus) { const old = bus.run; old.gain.cancelScheduledValues(actx.currentTime); old.gain.setValueAtTime(0, actx.currentTime); setTimeout(() => old.disconnect(), 200); }
+      bus = makeBuses();
+      state.t0 = actx.currentTime + 0.15;
+      ambient(state.t0, DURATION);
+      bus.run.gain.setValueAtTime(1, state.t0 + 179); bus.run.gain.linearRampToValueAtTime(0.0001, state.t0 + DURATION);
+    } else state.perf0 = performance.now() + 150;
+    requestAnimationFrame(frame);
+  }
+  function frame() {
+    const t = clock(), tc = clamp(t, 0, DURATION);
+    scheduleAudio(t); render(tc); updateHUD(tc);
+    if (t >= DURATION) { finish(); return; }
+    requestAnimationFrame(frame);
+  }
+  function finish() {
+    state.running = false; posterT = 177; render(posterT);
+    playLabel.textContent = 'Ещё раз';
+    $('playIcon').toggleAttribute('hidden', true); $('replayIcon').toggleAttribute('hidden', false);
+    $('hint').textContent = 'Посмотреть снова';
+    overlay.hidden = false; playBtn.focus({ preventScroll: true });
+  }
+
+  /* =====================================================================
+     CONTROLS
+     ===================================================================== */
+  function applyVolume() {
+    if (actx && master) master.gain.setTargetAtTime(effVol(), actx.currentTime, 0.03);
+    muteBtn.setAttribute('aria-pressed', String(vol.muted));
+    muteBtn.setAttribute('aria-label', vol.muted ? 'Включить звук' : 'Выключить звук');
+    $('waves').toggleAttribute('hidden', vol.muted); $('cross').toggleAttribute('hidden', !vol.muted);
+  }
+  playBtn.addEventListener('click', start);
+  muteBtn.addEventListener('click', () => { vol.muted = !vol.muted; applyVolume(); });
+  volEl.addEventListener('input', () => { vol.level = parseFloat(volEl.value); if (vol.muted && vol.level > 0) vol.muted = false; applyVolume(); });
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', fit);
+  fit();
+  playBtn.focus({ preventScroll: true });
+})();
+</script>
+
+</body>
+</html>
