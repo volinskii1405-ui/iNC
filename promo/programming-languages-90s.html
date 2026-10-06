@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Ten Languages in 90 Seconds</title>
+<style>
+  /* Layout: one 16:9 stage, letterboxed and scaled to the window.
+     All visuals are drawn on a 1920x1080 logical canvas; the HUD and the
+     overlay scale with --u (one logical pixel). Single dark look by design. */
+  :root {
+    --bg: #030406;
+    --stage: #07080c;
+    --ink: #eeeae3;
+    --muted: #8d8996;
+    --accent: #f3a35f;
+    --ice: #a9c8ff;
+    --u: 1px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; font-family: var(--sans); }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: var(--stage); overflow: hidden; user-select: none; -webkit-user-select: none;
+  }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #overlay {
+    position: absolute; inset: 0; z-index: 2;
+    display: grid; place-content: center; justify-items: center; gap: calc(var(--u) * 26);
+    background: radial-gradient(ellipse at center, rgba(3, 4, 6, .45), rgba(3, 4, 6, .84));
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  #playBtn { display: grid; justify-items: center; gap: calc(var(--u) * 18); background: none; border: 0; color: var(--ink); cursor: pointer; font: inherit; padding: 0; }
+  #playBtn .disc {
+    width: max(72px, calc(var(--u) * 176)); aspect-ratio: 1; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: #1a1006;
+    box-shadow: 0 0 0 calc(var(--u) * 10) rgba(243, 163, 95, .14), 0 0 calc(var(--u) * 90) rgba(243, 163, 95, .45);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  #playBtn:hover .disc { transform: scale(1.05); }
+  #playBtn:focus-visible { outline: none; }
+  #playBtn:focus-visible .disc { box-shadow: 0 0 0 4px var(--ink), 0 0 calc(var(--u) * 90) rgba(243, 163, 95, .55); }
+  #playBtn svg { width: 38%; height: 38%; }
+  #playLabel { font-size: max(15px, calc(var(--u) * 40)); font-weight: 650; letter-spacing: .02em; }
+  .hint { margin: 0; font-size: max(11px, calc(var(--u) * 24)); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+
+  #hud {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; gap: max(8px, calc(var(--u) * 22));
+    padding: max(6px, calc(var(--u) * 16)) max(16px, calc(var(--u) * 40)) max(8px, calc(var(--u) * 22));
+    background: linear-gradient(to top, rgba(0, 0, 0, .6), rgba(0, 0, 0, 0));
+    font-size: max(11px, calc(var(--u) * 22));
+  }
+  #timer { font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
+  #track { flex: 1; min-width: 0; height: max(3px, calc(var(--u) * 5)); background: rgba(255, 255, 255, .14); border-radius: 99px; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--ice), var(--accent)); border-radius: inherit; }
+  #muteBtn {
+    flex: none; width: max(28px, calc(var(--u) * 46)); height: max(28px, calc(var(--u) * 46));
+    display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(255, 255, 255, .08); color: var(--ink); cursor: pointer;
+  }
+  #muteBtn:hover { background: rgba(255, 255, 255, .16); }
+  #muteBtn:focus-visible, #vol:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #muteBtn svg { width: 60%; height: 60%; }
+  #vol { flex: none; width: max(64px, calc(var(--u) * 170)); accent-color: var(--accent); margin: 0; }
+</style>
+
+<div id="stage" role="region" aria-label="Ten programming languages, their strengths and weaknesses, a 90-second animated video">
+  <canvas id="view" aria-hidden="true"></canvas>
+
+  <div id="overlay">
+    <button id="playBtn" type="button">
+      <span class="disc">
+        <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
+        <svg id="replayIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
+      </span>
+      <span id="playLabel">Play</span>
+    </button>
+    <p class="hint" id="hint">Sound on &middot; 90 seconds</p>
+  </div>
+
+  <div id="hud">
+    <span id="timer">0:00 / 1:30</span>
+    <div id="track" role="progressbar" aria-label="Playback progress" aria-valuemin="0" aria-valuemax="90" aria-valuenow="0"><div id="bar"></div></div>
+    <button id="muteBtn" type="button" aria-label="Mute" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>
+        <path id="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path id="cross" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+      </svg>
+    </button>
+    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Master volume">
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     TIMELINE
+     0-6s intro · 10 languages x 8s (6-86s) · 86-90s outro
+     ===================================================================== */
+  const W = 1920, H = 1080;
+  const DURATION = 90, LANG_T0 = 6, LANG_DUR = 8, OUTRO_T0 = 86;
+  const SANS = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'system-ui, sans-serif';
+  const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace';
+
+  // Per-scene local timings (seconds after the scene starts).
+  const TYPE_AT = 0.7, TYPE_END_AT = 3.5;              // code typing window
+  const PRO_AT = [1.3, 1.9, 2.5], CON_AT = [3.3, 3.9, 4.5];
+  const CHIP_AT = 5.1, CHIP_STEP = 0.18;
+
+  const C = {
+    ink: [238, 234, 227], muted: [141, 137, 150], accent: [243, 163, 95], ice: [169, 200, 255],
+    ok: [120, 214, 150], bad: [255, 118, 108], str: [166, 216, 140], num: [198, 167, 255],
+    kw: [244, 150, 120], fn: [255, 217, 168], tag: [255, 140, 120]
+  };
+
+  /* =====================================================================
+     CONTENT: the ten languages
+     ===================================================================== */
+  const LANGS = [
+    {
+      name: 'Python', color: [79, 160, 230], color2: [255, 212, 59], file: 'greet.py', meta: '1991 · Guido van Rossum',
+      tagline: 'Readable, batteries included, everywhere in data.',
+      pros: ['Clean, readable syntax', 'Huge ecosystem for data and AI', 'Fast to prototype and script'],
+      cons: ['Slow for CPU-heavy loops', 'GIL limits threads (CPython)', 'Type errors surface at runtime'],
+      best: ['Data science', 'Machine learning', 'Automation', 'Backends'],
+      syntax: { kw: ['def', 'for', 'in', 'if', 'return', 'import'], bi: ['print', 'len', 'range'], comment: '#', sq: true },
+      code: [
+        'def greet(names):',
+        '    for name in names:',
+        '        print(f"Hello, {name}!")',
+        '',
+        'squares = [n * n for n in range(5)]',
+        'greet(["Ada", "Linus"])'
+      ]
+    },
+    {
+      name: 'Java', color: [248, 152, 32], color2: [231, 111, 0], file: 'Hello.java', meta: '1995 · James Gosling, Sun Microsystems',
+      tagline: 'Write once, run anywhere on the JVM.',
+      pros: ['Portable across platforms via the JVM', 'Mature, battle-tested ecosystem', 'Static typing and garbage collection'],
+      cons: ['Verbose, lots of boilerplate', 'JVM startup and memory overhead', 'Heavy frameworks, complex builds'],
+      best: ['Enterprise backends', 'Android', 'Big data'],
+      syntax: { kw: ['public', 'class', 'static', 'void', 'new', 'return', 'for', 'int'], bi: ['String', 'System', 'List'], comment: '//', sq: true },
+      code: [
+        'public class Hello {',
+        '    public static void main(String[] args) {',
+        '        List<String> langs = List.of("Java", "JVM");',
+        '        for (String s : langs) {',
+        '            System.out.println("Hello, " + s);',
+        '        }',
+        '    }',
+        '}'
+      ]
+    },
+    {
+      name: 'JavaScript', color: [247, 223, 30], color2: [255, 240, 140], file: 'app.js', meta: '1995 · Brendan Eich, Netscape',
+      tagline: 'The language every browser speaks.',
+      pros: ['Runs natively in every browser', 'Full stack with Node.js', 'Huge package ecosystem (npm)'],
+      cons: ['Odd type coercion: "1" + 1 is "11"', 'Dynamic typing (hence TypeScript)', 'Fast-churning tools and frameworks'],
+      best: ['Web front-end', 'Node.js servers', 'Cross-platform apps'],
+      syntax: { kw: ['const', 'let', 'await', 'async', 'function', 'return', 'new'], bi: ['console', 'fetch', 'document'], comment: '//', sq: true },
+      code: [
+        'const res = await fetch("/api/users");',
+        'const users = await res.json();',
+        '',
+        'users',
+        '  .filter(u => u.active)',
+        '  .forEach(u => console.log(u.name));',
+        '',
+        'console.log("1" + 1);   // "11"'
+      ]
+    },
+    {
+      name: 'C', color: [168, 185, 204], color2: [110, 140, 180], file: 'hello.c', meta: '1972 · Dennis Ritchie, Bell Labs',
+      tagline: 'Portable assembly that still runs the world.',
+      pros: ['Close to the hardware, tiny runtime', 'Fast and predictable', 'Compiles for almost any chip'],
+      cons: ['Manual memory management', 'Buffer overflows, undefined behavior', 'Minimal standard library'],
+      best: ['OS kernels', 'Embedded', 'Drivers'],
+      syntax: { kw: ['int', 'char', 'void', 'return', 'if', 'sizeof'], bi: ['malloc', 'free', 'snprintf', 'puts', 'NULL'], comment: '//', sq: true, pre: true },
+      code: [
+        '#include <stdio.h>',
+        '#include <stdlib.h>',
+        '',
+        'int main(void) {',
+        '    char *buf = malloc(64);',
+        '    if (buf == NULL) return 1;',
+        '    snprintf(buf, 64, "Hello, %s", "C");',
+        '    puts(buf);',
+        '    free(buf);   // forget this and you leak',
+        '}'
+      ]
+    },
+    {
+      name: 'C++', color: [101, 154, 230], color2: [0, 120, 215], file: 'sort.cpp', meta: '1985 · Bjarne Stroustrup, Bell Labs',
+      tagline: 'Native performance with high-level abstractions.',
+      pros: ['Native speed, zero-cost abstractions', 'RAII and powerful templates', 'Standard in games and engines'],
+      cons: ['Huge, complex language', 'Slow compile times', 'Memory-safety pitfalls remain'],
+      best: ['Game engines', 'Browsers', 'High-performance systems'],
+      syntax: { kw: ['int', 'auto', 'for', 'return', 'template', 'const'], bi: ['std', 'vector', 'cout', 'ranges', 'sort'], comment: '//', sq: true, pre: true },
+      code: [
+        '#include <algorithm>',
+        '#include <iostream>',
+        '#include <vector>',
+        '',
+        'int main() {',
+        '    std::vector<int> v{5, 2, 9, 1};',
+        '    std::ranges::sort(v);',
+        "    for (int x : v) std::cout << x << ' ';",
+        '}'
+      ]
+    },
+    {
+      name: 'C#', color: [181, 126, 220], color2: [140, 80, 200], file: 'Program.cs', meta: '2000 · Anders Hejlsberg, Microsoft',
+      tagline: 'Modern, productive, and built on .NET.',
+      pros: ['LINQ, async/await, rich features', 'Excellent tooling and .NET libraries', 'Cross-platform; powers Unity games'],
+      cons: ['Ecosystem centered on .NET', 'Garbage collector can add pauses', 'Heavier runtime than native code'],
+      best: ['Unity games', 'Web APIs (ASP.NET)', 'Desktop apps'],
+      syntax: { kw: ['var', 'foreach', 'in', 'new', 'return', 'await', 'async'], bi: ['Console', 'Where', 'OrderBy', 'Select'], comment: '//', sq: true },
+      code: [
+        'var adults = people',
+        '    .Where(p => p.Age >= 18)',
+        '    .OrderBy(p => p.Name)',
+        '    .Select(p => p.Name);',
+        '',
+        'foreach (var name in adults)',
+        '    Console.WriteLine(name);'
+      ]
+    },
+    {
+      name: 'Assembly', color: [124, 227, 139], color2: [70, 190, 110], file: 'hello.asm', meta: '1947 · Kathleen Booth · one dialect per CPU',
+      tagline: 'Assembler: human-readable machine instructions.',
+      pros: ['Total control of the CPU', 'Hand-tuned code for hot loops', 'Essential for boot code and reversing'],
+      cons: ['Tied to one CPU architecture', 'Slow to write, hard to read', 'No safety net at all'],
+      best: ['Bootloaders', 'Embedded', 'Security research'],
+      syntax: { kw: ['mov', 'lea', 'xor', 'syscall', 'call', 'ret', 'jmp'], bi: ['rax', 'rdi', 'rsi', 'rdx', 'edi'], comment: ';', sq: false },
+      code: [
+        '_start:',
+        '    mov  rax, 1        ; sys_write',
+        '    mov  rdi, 1        ; stdout',
+        '    lea  rsi, [msg]',
+        '    mov  rdx, 6',
+        '    syscall',
+        '    mov  rax, 60       ; sys_exit',
+        '    xor  edi, edi',
+        '    syscall'
+      ]
+    },
+    {
+      name: 'Rust', color: [222, 165, 132], color2: [247, 76, 0], file: 'main.rs', meta: '2015 · Graydon Hoare, Mozilla',
+      tagline: 'Memory safety without a garbage collector.',
+      pros: ['Borrow checker prevents memory bugs', 'C/C++-class performance', 'Cargo: great build and package tool'],
+      cons: ['Steep learning curve', 'Long compile times', 'Younger library ecosystem'],
+      best: ['Systems', 'CLI tools', 'WebAssembly'],
+      syntax: { kw: ['fn', 'let', 'if', 'else', 'mut', 'return', 'match'], bi: ['str', 'String', 'println!'], comment: '//', sq: false },
+      code: [
+        "fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {",
+        '    if a.len() >= b.len() { a } else { b }',
+        '}',
+        '',
+        'fn main() {',
+        '    let s = String::from("borrowed");',
+        '    println!("{}", longest(&s, "ok"));',
+        '}'
+      ]
+    },
+    {
+      name: 'Go', color: [0, 173, 216], color2: [94, 210, 240], file: 'main.go', meta: '2009 · Griesemer, Pike, Thompson (Google)',
+      tagline: 'A small language for concurrent servers.',
+      pros: ['Small, simple, easy to learn', 'Goroutines and channels', 'Fast builds, single static binary'],
+      cons: ['Repetitive if err != nil', 'Less expressive type system', 'GC rules out hard real-time'],
+      best: ['Cloud services', 'DevOps tools', 'Network servers'],
+      syntax: { kw: ['func', 'go', 'if', 'return', 'chan', 'make', 'nil', 'err'], bi: ['fmt', 'log', 'os'], comment: '//', sq: false },
+      code: [
+        'func main() {',
+        '    ch := make(chan string)',
+        '    go func() { ch <- "hi from a goroutine" }()',
+        '    fmt.Println(<-ch)',
+        '',
+        '    if _, err := os.Open("x.txt"); err != nil {',
+        '        log.Fatal(err)',
+        '    }',
+        '}'
+      ]
+    },
+    {
+      name: 'HTML', color: [227, 79, 38], color2: [240, 101, 41], file: 'index.html', meta: '1991 · Tim Berners-Lee',
+      tagline: 'Markup, not a programming language.',
+      pros: ['Every browser renders it', 'Easy to learn, instant results', 'Semantic structure, accessibility'],
+      cons: ['No logic or computation on its own', 'Needs CSS and JS to look and act', 'Mistakes fail silently'],
+      best: ['Web pages', 'Emails', 'Documentation'],
+      syntax: { html: true },
+      code: [
+        '<!DOCTYPE html>',
+        '<html lang="en">',
+        '  <body>',
+        '    <h1>Hello, web!</h1>',
+        '    <p>Structure, not logic.</p>',
+        '    <a href="/docs">Read more</a>',
+        '  </body>',
+        '</html>'
+      ]
+    }
+  ];
+
+  /* =====================================================================
+     UTILITIES
+     ===================================================================== */
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const prog = (t, a, b) => clamp((t - a) / (b - a));
+  const eOut = p => 1 - Math.pow(1 - p, 3);
+  const eIn = p => p * p * p;
+  const eInOut = p => (p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const eBack = p => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const mix = (a, b, p) => [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p)];
+  function mulberry32(a) {
+    return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  const rng = mulberry32(90);
+  const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const langStart = i => LANG_T0 + i * LANG_DUR;
+
+  /* =====================================================================
+     DOM + CANVAS
+     ===================================================================== */
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), canvas = $('view'), ctx = canvas.getContext('2d');
+  const overlay = $('overlay'), playBtn = $('playBtn'), playLabel = $('playLabel');
+  const timerEl = $('timer'), barEl = $('bar'), trackEl = $('track');
+  const muteBtn = $('muteBtn'), volEl = $('vol');
+  let scale = 1, posterT = 3.6;
+
+  function fit() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let w = vw, h = vw * 9 / 16;
+    if (h > vh) { h = vh; w = vh * 16 / 9; }
+    w = Math.max(1, Math.floor(w)); h = Math.max(1, Math.floor(h));
+    stage.style.width = w + 'px'; stage.style.height = h + 'px';
+    stage.style.setProperty('--u', (w / W) + 'px');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    scale = canvas.width / W;
+    if (!state.running) render(posterT);
+  }
+
+  const setLS = px => { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; };
+  let A = 1;                                           // scene alpha multiplier
+  const ga = x => { ctx.globalAlpha = clamp(A * x); };
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function panel(x, y, w, h, r = 18) {
+    rr(x, y, w, h, r);
+    ctx.fillStyle = 'rgba(14,16,24,0.9)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  function glow(x, y, r, col, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  function codeWindow(x, y, w, h, title) {
+    panel(x, y, w, h);
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.arc(x + 30 + i * 24, y + 28, 6.5, 0, 7); ctx.fill(); }
+    ctx.font = `500 20px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText(title, x + w / 2, y + 29);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x, y + 56, w, 1.5);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+  // Set a font, shrinking it until the text fits maxW.
+  function fitFont(text, weight, size, family, maxW) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const w = ctx.measureText(text).width;
+    if (w > maxW) ctx.font = `${weight} ${Math.floor(size * maxW / w)}px ${family}`;
+  }
+
+  /* =====================================================================
+     SYNTAX HIGHLIGHTING (tiny, per-language keyword sets)
+     ===================================================================== */
+  LANGS.forEach(L => { if (!L.syntax.html) { L.syntax.kwSet = new Set(L.syntax.kw); L.syntax.biSet = new Set(L.syntax.bi); } });
+
+  function tokenize(line, sx) {
+    if (sx.html) return tokenizeHTML(line);
+    const out = [];
+    // preprocessor line (C, C++)
+    if (sx.pre && line.trimStart().startsWith('#')) {
+      const m = line.match(/^(\s*#\w*)(.*)$/);
+      out.push({ text: m[1], col: 0, color: C.kw });
+      if (m[2]) out.push({ text: m[2], col: m[1].length, color: C.str });
+      return out;
+    }
+    // split off a trailing comment that is not inside a string
+    let code = line, comment = '', q = null;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) { if (ch === '\\') i++; else if (ch === q) q = null; continue; }
+      if (ch === '"' || (sx.sq && ch === "'")) { q = ch; continue; }
+      if (line.startsWith(sx.comment, i)) { code = line.slice(0, i); comment = line.slice(i); break; }
+    }
+    const re = sx.sq
+      ? /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|([A-Za-z_]\w*!?)|(\d+(?:\.\d+)?)|(\s+)|(.)/g
+      : /("(?:[^"\\]|\\.)*"?)|([A-Za-z_]\w*!?)|(\d+(?:\.\d+)?)|(\s+)|(.)/g;
+    let m, afterDef = false;
+    while ((m = re.exec(code))) {
+      let color = null;
+      if (m[1]) color = C.str;
+      else if (m[2]) {
+        const w = m[2], next = code[m.index + w.length];
+        color = sx.kwSet.has(w) ? C.kw : sx.biSet.has(w) ? C.ice : (afterDef || next === '(') ? C.fn : C.ink;
+        afterDef = /^(def|fn|func|class)$/.test(w);
+      } else if (m[3]) color = C.num;
+      else if (m[5]) color = C.muted;
+      if (color) out.push({ text: m[0], col: m.index, color });
+    }
+    if (comment) out.push({ text: comment, col: code.length, color: C.muted, italic: true });
+    return out;
+  }
+  function tokenizeHTML(line) {
+    const out = []; let i = 0, inTag = false, first = false;
+    const push = (text, color) => { out.push({ text, col: i, color }); i += text.length; };
+    while (i < line.length) {
+      const rest = line.slice(i); let m;
+      if (!inTag) {
+        if (rest[0] === '<') { m = rest.match(/^<\/?!?/); push(m[0], C.muted); inTag = true; first = true; continue; }
+        m = rest.match(/^[^<]+/); push(m[0], C.ink); continue;
+      }
+      if (rest[0] === '>') { push('>', C.muted); inTag = false; continue; }
+      if (rest[0] === '"') { m = rest.match(/^"[^"]*"?/); push(m[0], C.str); continue; }
+      if ((m = rest.match(/^[\w-]+/))) { push(m[0], first ? C.tag : C.ice); first = false; continue; }
+      push(rest[0], C.muted);
+    }
+    return out;
+  }
+
+  // Per-language character reveal times (indentation appears instantly).
+  LANGS.forEach((L, li) => {
+    const t0 = langStart(li);
+    const chars = L.code.reduce((n, l) => n + l.trimStart().length, 0);
+    const pause = 0.05, cps = chars / (TYPE_END_AT - TYPE_AT - pause * (L.code.length - 1));
+    let tt = t0 + TYPE_AT, n = 0;
+    L.lineStart = []; L.charT = []; L.ticks = [];
+    L.code.forEach(line => {
+      L.lineStart.push(L.charT.length);
+      const indent = line.match(/^ */)[0].length;
+      for (let i = 0; i < line.length; i++) {
+        L.charT.push(tt);
+        if (i >= indent) { if (line[i] !== ' ' && n++ % 2 === 0) L.ticks.push(tt); tt += 1 / cps; }
+      }
+      tt += pause;
+    });
+  });
+
+  // Faint scrolling code texture behind everything, pre-rendered once.
+  const codeBg = document.createElement('canvas');
+  codeBg.width = W; codeBg.height = 1400;
+  {
+    const g = codeBg.getContext('2d'), all = LANGS.flatMap(L => L.code.concat(['']));
+    g.font = `400 19px ${MONO}`; g.fillStyle = '#ffffff'; g.textBaseline = 'top';
+    [40, 520, 1000, 1480].forEach((x, ci) => { for (let k = 0; k < 50; k++) g.fillText(all[(k + ci * 23) % all.length], x, k * 28); });
+  }
+  const grain = document.createElement('canvas'); grain.width = grain.height = 220;
+  {
+    const g = grain.getContext('2d'), img = g.createImageData(220, 220);
+    for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    g.putImageData(img, 0, 0);
+  }
+  const grainPattern = ctx.createPattern(grain, 'repeat');
+  const DUST = Array.from({ length: 60 }, () => ({ x: rng() * W, y: rng() * H, r: .6 + rng() * 1.8, s: 4 + rng() * 14, ph: rng() * 6.28, a: .1 + rng() * .25 }));
+
+  /* =====================================================================
+     SCENES
+     ===================================================================== */
+  // Grid of language tags, shared by the intro and the outro.
+  function tagGrid(t, appearAt, step, y0, exitAt) {
+    const tw = 270, th = 78, gap = 24, x0 = (W - (5 * tw + 4 * gap)) / 2;
+    LANGS.forEach((L, k) => {
+      const ap = prog(t, appearAt + k * step, appearAt + k * step + 0.4);
+      if (ap <= 0) return;
+      const ex = exitAt ? eIn(prog(t, exitAt + k * 0.03, exitAt + 0.5 + k * 0.03)) : 0;
+      const x = x0 + (k % 5) * (tw + gap), y = y0 + Math.floor(k / 5) * (th + gap) - ex * 80;
+      const s = lerp(0.7, 1, eBack(ap));
+      ctx.save(); ctx.translate(x + tw / 2, y + th / 2); ctx.scale(s, s);
+      ga(clamp(ap * 1.5) * (1 - ex));
+      rr(-tw / 2, -th / 2, tw, th, 16);
+      ctx.fillStyle = rgba(L.color, 0.12); ctx.fill();
+      ctx.strokeStyle = rgba(L.color, 0.7); ctx.lineWidth = 2; ctx.stroke();
+      ctx.font = `650 34px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = rgba(L.color, 1); ctx.fillText(L.name, 0, 1);
+      ctx.restore();
+    });
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawIntro(t) {
+    const out = eIn(prog(t, 5.0, 5.9));
+    ctx.translate(0, -out * 40);
+    ctx.textAlign = 'center';
+    const p1 = eOut(prog(t, 0.2, 1.1));
+    ga(p1 * (1 - out)); ctx.font = `700 132px ${SANS}`; ctx.fillStyle = rgba(C.ink, 1);
+    ctx.save(); ctx.shadowColor = rgba(C.accent, 0.45); ctx.shadowBlur = 30;
+    ctx.fillText('Ten languages', 960, 380 + (1 - p1) * 30); ctx.restore();
+    const p2 = eOut(prog(t, 0.9, 1.6));
+    ga(p2 * (1 - out)); ctx.font = `500 42px ${SANS}`; ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText('Strengths and weaknesses in 90 seconds', 960, 462 + (1 - p2) * 20);
+    const rp = eOut(prog(t, 1.2, 2.0));
+    ga(rp * 0.6 * (1 - out)); ctx.fillStyle = rgba(C.accent, 1); ctx.fillRect(960 - 200 * rp, 512, 400 * rp, 2);
+    tagGrid(t, 1.8, 0.18, 590, 5.0);
+  }
+
+  function drawOutro(t) {
+    tagGrid(t, 86.05, 0.06, 250);
+    ctx.textAlign = 'center';
+    const p1 = eOut(prog(t, 86.9, 87.5));
+    ga(p1); ctx.font = `700 92px ${SANS}`; ctx.fillStyle = rgba(C.ink, 1);
+    ctx.fillText('No best language.', 960, 640 + (1 - p1) * 24);
+    const p2 = eOut(prog(t, 87.5, 88.1));
+    ga(p2); ctx.font = `500 50px ${SANS}`; ctx.fillStyle = rgba(C.accent, 1);
+    ctx.fillText('Just the right tool for the job.', 960, 730 + (1 - p2) * 18);
+    if (t >= 87.6) {                                       // flash on the final hit
+      const f = 1 - prog(t, 87.6, 88.3);
+      ga(0.35 * f * f); glow(960, 600, 900, [255, 236, 214], 1);
+    }
+  }
+
+  // Strengths or weaknesses card.
+  function listCard(tau, x, y, w, h, title, color, items, times, sign) {
+    ga(eOut(prog(tau, 0.25, 0.7))); panel(x, y, w, h);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = `700 22px ${SANS}`; setLS(6); ctx.fillStyle = rgba(color, 1);
+    ctx.fillText(title, x + 40, y + 58); setLS(0);
+    ctx.fillStyle = rgba(color, 0.35); ctx.fillRect(x + 40, y + 78, w - 80, 1.5);
+    items.forEach((text, k) => {
+      const p = eOut(prog(tau, times[k], times[k] + 0.45));
+      if (p <= 0) return;
+      const iy = y + 140 + k * 76, bx = x + 58;
+      ga(p);
+      const s = lerp(0.4, 1, eBack(prog(tau, times[k], times[k] + 0.35)));
+      ctx.fillStyle = rgba(color, 0.18); ctx.beginPath(); ctx.arc(bx, iy - 10, 18 * s, 0, 7); ctx.fill();
+      ctx.strokeStyle = rgba(color, 1); ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(bx - 8 * s, iy - 10); ctx.lineTo(bx + 8 * s, iy - 10);
+      if (sign > 0) { ctx.moveTo(bx, iy - 18 * s); ctx.lineTo(bx, iy - 2 * s); }
+      ctx.stroke();
+      fitFont(text, 500, 31, SANS, w - 140);
+      ctx.fillStyle = rgba(C.ink, 0.95);
+      ctx.fillText(text, x + 96 + (1 - p) * 24, iy);
+    });
+  }
+
+  function drawLang(L, i, t) {
+    const T = langStart(i), tau = t - T;
+    const slide = (1 - eOut(prog(tau, -0.3, 0.45))) * 140 - eIn(prog(tau, 7.55, 8.15)) * 140;
+    ctx.translate(slide, 0);
+
+    // --- header ---
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ga(eOut(prog(tau, 0, 0.5))); ctx.font = `600 22px ${SANS}`; setLS(6); ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText(`${String(i + 1).padStart(2, '0')} / ${LANGS.length}`, 120, 128); setLS(0);
+
+    ctx.font = `750 128px ${SANS}`;
+    const nw = ctx.measureText(L.name).width;
+    const sweep = lerp(100, 140 + nw + 60, eInOut(prog(tau, 0.05, 0.65)));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, sweep, 300); ctx.clip();
+    const ng = ctx.createLinearGradient(120, 0, 120 + nw, 0);
+    ng.addColorStop(0, rgba(L.color, 1)); ng.addColorStop(1, rgba(L.color2, 1));
+    ga(1); ctx.fillStyle = ng; ctx.shadowColor = rgba(L.color, 0.45); ctx.shadowBlur = 28;
+    ctx.fillText(L.name, 116, 244);
+    ctx.restore();
+
+    const mp = eOut(prog(tau, 0.35, 0.8));
+    ga(mp); ctx.font = `500 28px ${SANS}`; ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText(L.meta, 120, 296 + (1 - mp) * 10);
+    const tp = eOut(prog(tau, 0.5, 0.95));
+    ga(tp); fitFont(L.tagline, 500, 32, SANS, 880); ctx.fillStyle = rgba(C.ink, 0.92);
+    ctx.fillText(L.tagline, 120, 346 + (1 - tp) * 10);
+
+    // --- code panel ---
+    const cx = 120, cy = 390, cw = 880, ch = 510;
+    ga(eOut(prog(tau, 0.2, 0.6))); codeWindow(cx, cy, cw, ch, L.file);
+    ctx.font = `400 23px ${MONO}`;
+    const charW = ctx.measureText('M').width, lh = 42, codeX = cx + 76, top = cy + 104;
+    let typed = 0; while (typed < L.charT.length && L.charT[typed] <= t) typed++;
+    let curLine = 0, curCol = 0;
+    L.code.forEach((line, li) => {
+      const start = L.lineStart[li];
+      if (li > 0 && typed <= start && !(line === '' && typed === start && typed > 0 && L.charT[start - 1] <= t)) return;
+      const text = line.slice(0, clamp(typed - start, 0, line.length)), y = top + li * lh;
+      ga(0.45); ctx.textAlign = 'right'; ctx.fillStyle = rgba(C.muted, 1); ctx.font = `400 23px ${MONO}`;
+      ctx.fillText(String(li + 1), cx + 50, y);
+      ctx.textAlign = 'left'; ga(1);
+      for (const tok of tokenize(text, L.syntax)) {
+        ctx.font = `${tok.italic ? 'italic ' : ''}400 23px ${MONO}`;
+        ctx.fillStyle = rgba(tok.color, 1); ctx.fillText(tok.text, codeX + tok.col * charW, y);
+      }
+      curLine = li; curCol = text.length;
+    });
+    const typing = tau > TYPE_AT && tau < TYPE_END_AT + 0.1;
+    if (tau > 0.4) {
+      ga(typing || Math.sin(t * 9) > 0 ? 1 : 0.15);
+      ctx.fillStyle = rgba(L.color, 1); ctx.fillRect(codeX + curCol * charW + 2, top + curLine * lh - 24, 3, 30);
+    }
+
+    // --- strengths / weaknesses ---
+    listCard(tau, 1060, 110, 740, 375, 'STRENGTHS', C.ok, L.pros, PRO_AT, 1);
+    listCard(tau, 1060, 525, 740, 375, 'WEAKNESSES', C.bad, L.cons, CON_AT, -1);
+
+    // --- best for ---
+    ctx.textBaseline = 'middle';
+    const lp = eOut(prog(tau, CHIP_AT - 0.15, CHIP_AT + 0.3));
+    ga(lp); ctx.font = `700 20px ${SANS}`; setLS(5); ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText('BEST FOR', 120, 956); setLS(0);
+    let x = 262;
+    L.best.forEach((b, k) => {
+      ctx.font = `600 24px ${SANS}`;
+      const bw = ctx.measureText(b).width + 40;
+      const p = prog(tau, CHIP_AT + k * CHIP_STEP, CHIP_AT + k * CHIP_STEP + 0.35);
+      if (p > 0) {
+        const s = lerp(0.6, 1, eBack(p));
+        ctx.save(); ctx.translate(x + bw / 2, 956); ctx.scale(s, s);
+        ga(clamp(p * 1.6)); rr(-bw / 2, -23, bw, 46, 23);
+        ctx.fillStyle = rgba(L.color, 0.14); ctx.fill(); ctx.strokeStyle = rgba(L.color, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = rgba(C.ink, 1); ctx.textAlign = 'center'; ctx.fillText(b, 0, 1);
+        ctx.restore();
+      }
+      x += bw + 14;
+    });
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  }
+
+  // Top-right progress segments, one per language, in its color.
+  function drawSegments(t) {
+    const a = prog(t, 5.6, 6.2) * (1 - prog(t, 85.8, 86.4));
+    if (a <= 0) return;
+    const sw = 38, gap = 5, x0 = 1800 - LANGS.length * (sw + gap) + gap, y = 74;
+    LANGS.forEach((L, i) => {
+      const p = prog(t, langStart(i), langStart(i) + LANG_DUR);
+      ctx.globalAlpha = a; ctx.fillStyle = 'rgba(255,255,255,0.12)'; rr(x0 + i * (sw + gap), y, sw, 6, 3); ctx.fill();
+      if (p > 0) { ctx.fillStyle = rgba(L.color, 1); rr(x0 + i * (sw + gap), y, Math.max(6, sw * p), 6, 3); ctx.fill(); }
+    });
+  }
+
+  /* =====================================================================
+     FRAME RENDERER
+     ===================================================================== */
+  function sceneTint(t) {
+    let c = C.accent;
+    LANGS.forEach((L, i) => { c = mix(c, L.color, prog(t, langStart(i) - 0.4, langStart(i) + 0.4)); });
+    return mix(c, C.accent, prog(t, OUTRO_T0 - 0.3, OUTRO_T0 + 0.5));
+  }
+  function render(t) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
+    const tint = sceneTint(t);
+    const bg = ctx.createRadialGradient(1300, 420, 0, 1300, 420, 1100);
+    bg.addColorStop(0, rgba(tint, 0.14)); bg.addColorStop(0.55, rgba(tint, 0.04)); bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    const off = (t * 16) % codeBg.height;                 // faint scrolling code texture
+    ctx.globalAlpha = 0.04; ctx.drawImage(codeBg, 0, -off); ctx.drawImage(codeBg, 0, codeBg.height - off);
+    for (const d of DUST) {
+      const y = ((d.y - t * d.s) % H + H) % H, x = d.x + Math.sin(t * 0.3 + d.ph) * 12;
+      ctx.globalAlpha = d.a * (0.6 + 0.4 * Math.sin(t * 1.3 + d.ph));
+      ctx.fillStyle = rgba(tint, 1); ctx.beginPath(); ctx.arc(x, y, d.r, 0, 7); ctx.fill();
+    }
+
+    // intro
+    const ia = 1 - prog(t, 5.5, 6.1);
+    if (ia > 0) { A = ia; ctx.save(); drawIntro(t); ctx.restore(); }
+    // languages (at most two overlap during a transition)
+    LANGS.forEach((L, i) => {
+      const tau = t - langStart(i);
+      if (tau < -0.3 || tau > 8.15) return;
+      A = Math.min(prog(tau, -0.3, 0.35), 1 - prog(tau, 7.55, 8.15));
+      if (A <= 0.001) return;
+      ctx.save(); drawLang(L, i, t); ctx.restore();
+    });
+    // outro
+    const oa = prog(t, 85.9, 86.4);
+    if (oa > 0) { A = oa; ctx.save(); drawOutro(t); ctx.restore(); }
+    A = 1; ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    drawSegments(t);
+
+    const v = ctx.createRadialGradient(960, 540, 460, 960, 540, 1180);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.66)');
+    ctx.globalAlpha = 1; ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    const gx = reduceMotion ? 0 : Math.random() * 220, gy = reduceMotion ? 0 : Math.random() * 220;
+    ctx.translate(-gx, -gy); ctx.globalAlpha = 0.035; ctx.fillStyle = grainPattern; ctx.fillRect(0, 0, W + 220, H + 220);
+    ctx.restore();
+    const fade = Math.max(1 - prog(t, 0, 0.4), prog(t, 89, 90));
+    if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  }
+
+  /* =====================================================================
+     AUDIO (Web Audio API only, all synthesized)
+     Graph: [music] + [sfx] -> run -> master -> compressor -> out.
+     Events are built once from the same timings the visuals use, then fed
+     to the audio clock by a short look-ahead scheduler in the frame loop.
+     ===================================================================== */
+  let actx = null, master = null, noiseBuf = null, bus = null;
+  const vol = { level: 0.8, muted: false };
+  const effVol = () => (vol.muted ? 0 : vol.level * vol.level);
+
+  function initAudio() {
+    if (actx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+    master = actx.createGain(); master.gain.value = effVol();
+    master.connect(comp); comp.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  function makeBuses() {
+    const run = actx.createGain(); run.connect(master);
+    const music = actx.createGain(); music.gain.value = 0.9; music.connect(run);
+    const sfx = actx.createGain(); sfx.connect(run);
+    return { run, music, sfx };
+  }
+  function gainTo(dest, v = 0) { const g = actx.createGain(); g.gain.value = v; g.connect(dest); return g; }
+  function osc(type, freq, at, stop) { const o = actx.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, at); o.start(at); o.stop(stop); return o; }
+  function noise(at, stop) { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(at, Math.random() * 1.5); s.stop(stop); return s; }
+  function filt(type, freq, q = 1) { const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; return f; }
+  function perc(g, at, peak, attack, decay) {
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay);
+  }
+
+  // Low ambient bed under the whole video.
+  function ambient(at, dur) {
+    const end = at + dur, g = gainTo(bus.music);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.045, at + 2);
+    g.gain.setValueAtTime(0.045, end - 1.5); g.gain.linearRampToValueAtTime(0, end);
+    const f = filt('lowpass', 460, 1.1); f.connect(g);
+    const lfo = osc('sine', 0.07, at, end), amt = actx.createGain(); amt.gain.value = 200; lfo.connect(amt); amt.connect(f.frequency);
+    [55, 82.41, 110].forEach(fr => [-7, 7].forEach(det => { const o = osc('sawtooth', fr, at, end); o.detune.value = det; o.connect(f); }));
+  }
+  function sweep(at, dur) {
+    const g = gainTo(bus.sfx);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.1, at + dur * 0.8); g.gain.exponentialRampToValueAtTime(0.0001, at + dur + 0.1);
+    const f = filt('lowpass', 180, 6); f.frequency.setValueAtTime(180, at); f.frequency.exponentialRampToValueAtTime(4800, at + dur * 0.85); f.connect(g);
+    [-12, 0, 12].forEach(det => { const o = osc('sawtooth', 110, at, at + dur + 0.15); o.detune.value = det; o.frequency.exponentialRampToValueAtTime(220, at + dur); o.connect(f); });
+  }
+  function tick(at) {
+    const g = gainTo(bus.sfx); perc(g, at, 0.05 + Math.random() * 0.025, 0.002, 0.03);
+    const f = filt('bandpass', 2600 + Math.random() * 1800, 2.2); f.connect(g);
+    noise(at, at + 0.05).connect(f);
+  }
+  function whoosh(at, dur) {
+    const g = gainTo(bus.sfx);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.14, at + dur * 0.55); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('bandpass', 300, 0.9);
+    f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(2400, at + dur * 0.55); f.frequency.exponentialRampToValueAtTime(500, at + dur);
+    let out = g;
+    if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.setValueAtTime(0.7, at); p.pan.linearRampToValueAtTime(-0.5, at + dur); p.connect(g); out = p; }
+    f.connect(out); noise(at, at + dur + 0.05).connect(f);
+  }
+  function pluck(at, freq, level = 0.06) {
+    const g = gainTo(bus.sfx); perc(g, at, level, 0.004, 0.35);
+    osc('triangle', freq, at, at + 0.45).connect(g);
+  }
+  // Rising two-note chime for a strength.
+  function plusChime(at) {
+    [[880, 0], [1318.5, 0.06]].forEach(([f, o]) => { const g = gainTo(bus.sfx); perc(g, at + o, 0.07, 0.004, 0.4); osc('sine', f, at + o, at + o + 0.5).connect(g); });
+  }
+  // Falling muted tone for a weakness.
+  function minusTone(at) {
+    const g = gainTo(bus.sfx); perc(g, at, 0.09, 0.006, 0.32);
+    const f = filt('lowpass', 1100, 1); f.connect(g);
+    const o = osc('triangle', 392, at, at + 0.4); o.frequency.exponentialRampToValueAtTime(247, at + 0.2); o.connect(f);
+  }
+  function kick(at, level = 0.28) {
+    const g = gainTo(bus.music); perc(g, at, level, 0.003, 0.3);
+    const o = osc('sine', 120, at, at + 0.4); o.frequency.exponentialRampToValueAtTime(42, at + 0.15); o.connect(g);
+  }
+  function hat(at) {
+    const g = gainTo(bus.music); perc(g, at, 0.018, 0.002, 0.045);
+    const f = filt('highpass', 7000, 0.7); f.connect(g); noise(at, at + 0.07).connect(f);
+  }
+  function chord(at, dur, freqs) {
+    const g = gainTo(bus.music);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.045, at + 0.4);
+    g.gain.setValueAtTime(0.045, at + dur - 0.5); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('lowpass', 900, 0.6); f.connect(g);
+    freqs.forEach(fr => [-6, 6].forEach(det => { const o = osc('triangle', fr, at, at + dur + 0.05); o.detune.value = det; o.connect(f); }));
+    const b = gainTo(bus.music); b.gain.setValueAtTime(0, at); b.gain.linearRampToValueAtTime(0.09, at + 0.2);
+    b.gain.setValueAtTime(0.09, at + dur - 0.4); b.gain.linearRampToValueAtTime(0, at + dur);
+    osc('sine', freqs[0] / 2, at, at + dur + 0.05).connect(b);
+  }
+  function swell(at, dur) {
+    const g = gainTo(bus.music);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.13, at + dur); g.gain.linearRampToValueAtTime(0, at + dur + 0.06);
+    const f = filt('lowpass', 200, 3); f.frequency.setValueAtTime(200, at); f.frequency.exponentialRampToValueAtTime(3600, at + dur); f.connect(g);
+    [110, 164.81, 220].forEach(fr => { const o = osc('sawtooth', fr, at, at + dur + 0.1); o.frequency.exponentialRampToValueAtTime(fr * 1.335, at + dur); o.connect(f); });
+  }
+  function hit(at) {
+    const kg = gainTo(bus.sfx); perc(kg, at, 0.85, 0.003, 0.6);
+    const k = osc('sine', 140, at, at + 0.8); k.frequency.exponentialRampToValueAtTime(38, at + 0.35); k.connect(kg);
+    const ng = gainTo(bus.sfx); perc(ng, at, 0.2, 0.003, 0.9);
+    const nf = filt('lowpass', 3000, 0.7); nf.frequency.setValueAtTime(3000, at); nf.frequency.exponentialRampToValueAtTime(250, at + 0.8); nf.connect(ng);
+    noise(at, at + 1).connect(nf);
+    const sg = gainTo(bus.sfx); perc(sg, at, 0.1, 0.01, 1.3);
+    [220, 261.63, 329.63, 440].forEach(fr => osc('triangle', fr, at, at + 1.4).connect(sg));
+  }
+
+  // Build the full event list once (time in seconds, play(at) on the audio clock).
+  const PROG = [[220, 261.63, 329.63], [174.61, 220, 261.63], [196, 261.63, 329.63], [196, 246.94, 293.66]]; // Am F C G
+  const PENTA = [440, 493.88, 554.37, 659.25, 739.99, 880, 987.77, 1108.73, 1318.51, 1479.98];
+  const EVENTS = [];
+  const ev = (t, play) => EVENTS.push({ t, play });
+  ev(0.1, at => sweep(at, 1.6));
+  LANGS.forEach((_, k) => ev(1.8 + k * 0.18, at => pluck(at, PENTA[k], 0.05)));
+  ev(5.0, at => whoosh(at, 0.8));
+  for (let t = LANG_T0, k = 0; t < OUTRO_T0; t += 4, k++) { const fr = PROG[k % 4]; ev(t, at => chord(at, 4.3, fr)); }
+  for (let t = LANG_T0; t < OUTRO_T0; t += 1) { ev(t, at => kick(at)); ev(t + 0.5, at => hat(at)); }
+  LANGS.forEach((L, i) => {
+    const T = langStart(i);
+    if (i > 0) ev(T - 0.3, at => whoosh(at, 0.6));
+    L.ticks.forEach(s => ev(s, at => tick(at)));
+    PRO_AT.forEach(s => ev(T + s, at => plusChime(at)));
+    CON_AT.forEach(s => ev(T + s, at => minusTone(at)));
+    L.best.forEach((_, k) => ev(T + CHIP_AT + k * CHIP_STEP, at => pluck(at, 1318.51 + k * 200, 0.03)));
+  });
+  LANGS.forEach((_, k) => ev(86.05 + k * 0.06, at => pluck(at, PENTA[k], 0.035)));
+  ev(86.2, at => swell(at, 1.4));
+  ev(87.6, at => hit(at));
+  EVENTS.sort((a, b) => a.t - b.t);
+
+  /* =====================================================================
+     MASTER TIMELINE
+     ===================================================================== */
+  const state = { running: false, t0: 0, perf0: 0, next: 0 };
+  const clock = () => (actx ? actx.currentTime - state.t0 : (performance.now() - state.perf0) / 1000);
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const LOOKAHEAD = 0.25;
+
+  function scheduleAudio(t) {
+    if (!actx) return;
+    while (state.next < EVENTS.length && EVENTS[state.next].t < t + LOOKAHEAD) {
+      const e = EVENTS[state.next++];
+      if (e.t >= t - 0.05) e.play(state.t0 + e.t);      // skip events missed while the tab was hidden
+    }
+  }
+  function updateHUD(t) {
+    barEl.style.width = (t / DURATION * 100) + '%';
+    timerEl.textContent = `${fmt(Math.min(t, DURATION))} / ${fmt(DURATION)}`;
+    trackEl.setAttribute('aria-valuenow', Math.floor(t));
+  }
+
+  function start() {
+    if (state.running) return;
+    state.running = true;
+    overlay.hidden = true;
+    initAudio();
+    state.next = 0;
+    if (actx) {
+      if (actx.state === 'suspended') actx.resume();
+      if (bus) { const old = bus.run; old.gain.cancelScheduledValues(actx.currentTime); old.gain.setValueAtTime(0, actx.currentTime); setTimeout(() => old.disconnect(), 200); }
+      bus = makeBuses();
+      state.t0 = actx.currentTime + 0.15;
+      ambient(state.t0, DURATION);
+      bus.run.gain.setValueAtTime(1, state.t0 + 89);      // fade out with the picture
+      bus.run.gain.linearRampToValueAtTime(0.0001, state.t0 + DURATION);
+    } else state.perf0 = performance.now() + 150;
+    requestAnimationFrame(frame);
+  }
+
+  function frame() {
+    const t = clock(), tc = clamp(t, 0, DURATION);
+    scheduleAudio(t);
+    render(tc); updateHUD(tc);
+    if (t >= DURATION) { finish(); return; }
+    requestAnimationFrame(frame);
+  }
+
+  function finish() {
+    state.running = false;
+    posterT = 88.6;
+    render(posterT);
+    playLabel.textContent = 'Replay';
+    $('playIcon').toggleAttribute('hidden', true); $('replayIcon').toggleAttribute('hidden', false);
+    $('hint').textContent = 'Watch it again';
+    overlay.hidden = false;
+    playBtn.focus({ preventScroll: true });
+  }
+
+  /* =====================================================================
+     CONTROLS
+     ===================================================================== */
+  function applyVolume() {
+    if (actx && master) master.gain.setTargetAtTime(effVol(), actx.currentTime, 0.03);
+    muteBtn.setAttribute('aria-pressed', String(vol.muted));
+    muteBtn.setAttribute('aria-label', vol.muted ? 'Unmute' : 'Mute');
+    $('waves').toggleAttribute('hidden', vol.muted);
+    $('cross').toggleAttribute('hidden', !vol.muted);
+  }
+  playBtn.addEventListener('click', start);
+  muteBtn.addEventListener('click', () => { vol.muted = !vol.muted; applyVolume(); });
+  volEl.addEventListener('input', () => {
+    vol.level = parseFloat(volEl.value);
+    if (vol.muted && vol.level > 0) vol.muted = false;
+    applyVolume();
+  });
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', fit);
+
+  fit();
+  playBtn.focus({ preventScroll: true });
+})();
+</script>
+
+</body>
+</html>
