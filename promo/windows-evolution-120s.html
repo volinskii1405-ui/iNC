@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Эволюция Windows</title>
+<style>
+  /* Layout: one 16:9 stage, letterboxed and scaled to the window.
+     Visuals are drawn on a 1920x1080 logical canvas; HUD and overlay
+     scale with --u (one logical pixel). Single dark look by design. */
+  :root {
+    --bg: #030406;
+    --stage: #07080c;
+    --ink: #eeeae3;
+    --muted: #8d8996;
+    --accent: #5fa8ff;
+    --warm: #f3a35f;
+    --u: 1px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, Menlo, "Liberation Mono", "DejaVu Sans Mono", monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; font-family: var(--sans); }
+  #stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--stage); overflow: hidden; user-select: none; -webkit-user-select: none; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #overlay {
+    position: absolute; inset: 0; z-index: 2;
+    display: grid; place-content: center; justify-items: center; gap: calc(var(--u) * 26);
+    background: radial-gradient(ellipse at center, rgba(3, 4, 6, .45), rgba(3, 4, 6, .84));
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  #playBtn { display: grid; justify-items: center; gap: calc(var(--u) * 18); background: none; border: 0; color: var(--ink); cursor: pointer; font: inherit; padding: 0; }
+  #playBtn .disc {
+    width: max(72px, calc(var(--u) * 176)); aspect-ratio: 1; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: #04121f;
+    box-shadow: 0 0 0 calc(var(--u) * 10) rgba(95, 168, 255, .15), 0 0 calc(var(--u) * 90) rgba(95, 168, 255, .45);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  #playBtn:hover .disc { transform: scale(1.05); }
+  #playBtn:focus-visible { outline: none; }
+  #playBtn:focus-visible .disc { box-shadow: 0 0 0 4px var(--ink), 0 0 calc(var(--u) * 90) rgba(95, 168, 255, .55); }
+  #playBtn svg { width: 38%; height: 38%; }
+  #playLabel { font-size: max(15px, calc(var(--u) * 40)); font-weight: 650; letter-spacing: .02em; }
+  .hint { margin: 0; font-size: max(11px, calc(var(--u) * 24)); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+
+  #hud {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; gap: max(8px, calc(var(--u) * 22));
+    padding: max(6px, calc(var(--u) * 16)) max(16px, calc(var(--u) * 40)) max(8px, calc(var(--u) * 22));
+    background: linear-gradient(to top, rgba(0, 0, 0, .6), rgba(0, 0, 0, 0));
+    font-size: max(11px, calc(var(--u) * 22));
+  }
+  #timer { font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
+  #track { flex: 1; min-width: 0; height: max(3px, calc(var(--u) * 5)); background: rgba(255, 255, 255, .14); border-radius: 99px; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--warm)); border-radius: inherit; }
+  #muteBtn {
+    flex: none; width: max(28px, calc(var(--u) * 46)); height: max(28px, calc(var(--u) * 46));
+    display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(255, 255, 255, .08); color: var(--ink); cursor: pointer;
+  }
+  #muteBtn:hover { background: rgba(255, 255, 255, .16); }
+  #muteBtn:focus-visible, #vol:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #muteBtn svg { width: 60%; height: 60%; }
+  #vol { flex: none; width: max(64px, calc(var(--u) * 170)); accent-color: var(--accent); margin: 0; }
+</style>
+
+<div id="stage" role="region" aria-label="Эволюция Windows от MS-DOS до Windows 11, анимированное видео на 120 секунд">
+  <canvas id="view" aria-hidden="true"></canvas>
+  <div id="overlay">
+    <button id="playBtn" type="button">
+      <span class="disc">
+        <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
+        <svg id="replayIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
+      </span>
+      <span id="playLabel">Смотреть</span>
+    </button>
+    <p class="hint" id="hint">Включите звук &middot; 120 секунд</p>
+  </div>
+  <div id="hud">
+    <span id="timer">0:00 / 2:00</span>
+    <div id="track" role="progressbar" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="120" aria-valuenow="0"><div id="bar"></div></div>
+    <button id="muteBtn" type="button" aria-label="Выключить звук" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>
+        <path id="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path id="cross" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+      </svg>
+    </button>
+    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Громкость">
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     TIMELINE: 0-6 intro · 13 versions x 8s (6-110) · 110-120 outro
+     ===================================================================== */
+  const W = 1920, H = 1080;
+  const DURATION = 120, V_T0 = 6, V_DUR = 8, OUTRO_T0 = 110;
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const SANS = css('--sans') || 'system-ui, sans-serif';
+  const MONO = css('--mono') || 'monospace';
+  // Era fonts for the recreated interfaces (system fallbacks keep them safe).
+  const F95 = '"MS Sans Serif", Tahoma, Verdana, Arial, sans-serif';
+  const FXP = 'Tahoma, Verdana, Arial, sans-serif';
+  const FSEG = '"Segoe UI Variable Text", "Segoe UI", ' + SANS;
+
+  // Screen of the monitor (logical px); recreated UIs draw in 0..SW x 0..SH.
+  const SX = 100, SY = 140, SW = 960, SH = 540;
+  // Card and bullet timings (seconds after a version starts).
+  const BUL_AT = [1.2, 1.9, 2.6], MEMO_AT = 3.6;
+
+  const C = { ink: [238, 234, 227], muted: [141, 137, 150], accent: [95, 168, 255], warm: [243, 163, 95] };
+
+  /* =====================================================================
+     UTILITIES
+     ===================================================================== */
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const prog = (t, a, b) => clamp((t - a) / (b - a));
+  const eOut = p => 1 - Math.pow(1 - p, 3);
+  const eIn = p => p * p * p;
+  const eInOut = p => (p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const eBack = p => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const mix = (a, b, p) => [lerp(a[0], b[0], p), lerp(a[1], b[1], p), lerp(a[2], b[2], p)];
+  const typed = (tau, t0, text, cps) => text.slice(0, clamp(Math.floor((tau - t0) * cps), 0, text.length));
+  const blink = tau => Math.sin(tau * 8) > 0;
+  function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const rng = mulberry32(1981);
+  const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* =====================================================================
+     DOM + CANVAS
+     ===================================================================== */
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), canvas = $('view'), ctx = canvas.getContext('2d');
+  const overlay = $('overlay'), playBtn = $('playBtn'), playLabel = $('playLabel');
+  const timerEl = $('timer'), barEl = $('bar'), trackEl = $('track'), muteBtn = $('muteBtn'), volEl = $('vol');
+  let scale = 1, posterT = 4.6;
+
+  function fit() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let w = vw, h = vw * 9 / 16;
+    if (h > vh) { h = vh; w = vh * 16 / 9; }
+    w = Math.max(1, Math.floor(w)); h = Math.max(1, Math.floor(h));
+    stage.style.width = w + 'px'; stage.style.height = h + 'px';
+    stage.style.setProperty('--u', (w / W) + 'px');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    scale = canvas.width / W;
+    if (!state.running) render(posterT);
+  }
+
+  const setLS = px => { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; };
+  let A = 1;
+  const ga = x => { ctx.globalAlpha = clamp(A * x); };
+
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function glow(x, y, r, col, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  function fitFont(text, weight, size, family, maxW) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const w = ctx.measureText(text).width;
+    if (w > maxW) ctx.font = `${weight} ${Math.floor(size * maxW / w)}px ${family}`;
+  }
+  function wrap(text, maxW) {
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function txt(s, x, y, font, color, align = 'left', base = 'alphabetic') {
+    ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(s, x, y);
+  }
+  // Mouse pointer and keyframed pointer path.
+  function cursor(x, y) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 22); ctx.lineTo(5.5, 17); ctx.lineTo(9.5, 26); ctx.lineTo(13, 24.5); ctx.lineTo(9, 15.5); ctx.lineTo(16, 15.5); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1.3; ctx.stroke();
+    ctx.restore();
+  }
+  function pathAt(tau, keys) {
+    if (tau <= keys[0][0]) return [keys[0][1], keys[0][2]];
+    for (let i = 0; i < keys.length - 1; i++) if (tau < keys[i + 1][0]) {
+      const p = eInOut(prog(tau, keys[i][0], keys[i + 1][0]));
+      return [lerp(keys[i][1], keys[i + 1][1], p), lerp(keys[i][2], keys[i + 1][2], p)];
+    }
+    const k = keys[keys.length - 1]; return [k[1], k[2]];
+  }
+  // Simple app icon: rounded square with an inner mark.
+  function appIcon(x, y, s, color, mark = '#ffffff', r = 0.22) {
+    rr(x, y, s, s, s * r); ctx.fillStyle = color; ctx.fill();
+    ctx.fillStyle = mark; ctx.globalAlpha *= 0.85; rr(x + s * .28, y + s * .28, s * .44, s * .44, s * .08); ctx.fill(); ctx.globalAlpha /= 0.85;
+  }
+  function deskIcon(cx, y, label, color, font, textColor, shadow) {
+    appIcon(cx - 20, y, 40, color);
+    ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    if (shadow) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(label, cx + 1, y + 47); }
+    ctx.fillStyle = textColor; ctx.fillText(label, cx, y + 46);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  /* =====================================================================
+     ERA WIDGETS: windows, taskbars, start menus
+     ===================================================================== */
+  function bevel(x, y, w, h, inset = false, fill = '#c0c0c0') {
+    ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = inset ? '#808080' : '#ffffff'; ctx.fillRect(x, y, w, 2); ctx.fillRect(x, y, 2, h);
+    ctx.fillStyle = inset ? '#ffffff' : '#404040'; ctx.fillRect(x, y + h - 2, w, 2); ctx.fillRect(x + w - 2, y, 2, h);
+  }
+  // Windows 1.0 / 3.x style: centered title, solid bar.
+  function win3(x, y, w, h, title, bar = '#000080') {
+    ctx.fillStyle = '#c0c0c0'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+    ctx.fillStyle = bar; ctx.fillRect(x + 4, y + 4, w - 8, 22);
+    bevel(x + 4, y + 4, 22, 22); ctx.fillStyle = '#000'; ctx.fillRect(x + 9, y + 14, 12, 3);
+    bevel(x + w - 26, y + 4, 22, 22);
+    txt(title, x + w / 2, y + 16, `700 14px ${F95}`, '#fff', 'center', 'middle');
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 4, y + 27, w - 8, h - 31);
+    ctx.textBaseline = 'alphabetic';
+    return { x: x + 4, y: y + 27, w: w - 8, h: h - 31 };
+  }
+  // Windows 95/98/2000 style.
+  function win9x(x, y, w, h, title, grad) {
+    bevel(x, y, w, h);
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, '#000080'); g.addColorStop(1, grad ? '#1084d0' : '#000080');
+    ctx.fillStyle = g; ctx.fillRect(x + 4, y + 4, w - 8, 22);
+    txt(title, x + 10, y + 16, `700 14px ${F95}`, '#fff', 'left', 'middle');
+    for (let k = 0; k < 3; k++) bevel(x + w - 26 - k * 20, y + 7, 17, 15);
+    txt('×', x + w - 17.5, y + 15, `700 14px ${F95}`, '#000', 'center', 'middle');
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 4, y + 30, w - 8, h - 34);
+    ctx.textBaseline = 'alphabetic';
+    return { x: x + 4, y: y + 30, w: w - 8, h: h - 34 };
+  }
+  function winXP(x, y, w, h, title) {
+    rr(x, y, w, h, 8); ctx.fillStyle = '#0a4fd0'; ctx.fill();
+    const g = ctx.createLinearGradient(0, y, 0, y + 30);
+    g.addColorStop(0, '#3d8bff'); g.addColorStop(0.15, '#0a5ff0'); g.addColorStop(1, '#0349c9');
+    ctx.save(); rr(x, y, w, 30, 8); ctx.clip(); ctx.fillStyle = g; ctx.fillRect(x, y, w, 30); ctx.restore();
+    txt(title, x + 11, y + 20, `700 15px ${FXP}`, 'rgba(0,0,0,.4)'); txt(title, x + 10, y + 19, `700 15px ${FXP}`, '#fff');
+    rr(x + w - 28, y + 5, 22, 21, 4); ctx.fillStyle = '#e2512c'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+    txt('×', x + w - 17, y + 16.5, `700 16px ${FXP}`, '#fff', 'center', 'middle');
+    ctx.fillStyle = '#ece9d8'; ctx.fillRect(x + 4, y + 30, w - 8, h - 34);
+    ctx.textBaseline = 'alphabetic';
+    return { x: x + 4, y: y + 30, w: w - 8, h: h - 34 };
+  }
+  function winGlass(x, y, w, h, title) {
+    rr(x, y, w, h, 8); ctx.fillStyle = 'rgba(160,195,230,0.5)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.2; ctx.stroke();
+    const g = ctx.createLinearGradient(0, y, 0, y + 30); g.addColorStop(0, 'rgba(255,255,255,.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); rr(x, y, w, h, 8); ctx.clip(); ctx.fillStyle = g; ctx.fillRect(x, y, w, 30); ctx.restore();
+    txt(title, x + 12, y + 20, `400 14px ${FSEG}`, '#10202f');
+    rr(x + w - 52, y + 1, 44, 19, 4); ctx.fillStyle = '#c94a3c'; ctx.fill();
+    txt('×', x + w - 30, y + 11, `700 14px ${FSEG}`, '#fff', 'center', 'middle');
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 8, y + 32, w - 16, h - 40);
+    ctx.textBaseline = 'alphabetic';
+    return { x: x + 8, y: y + 32, w: w - 16, h: h - 40 };
+  }
+  function tb95(items, pressed, quick) {
+    const y = SH - 32;
+    bevel(0, y, SW, 32);
+    bevel(3, y + 4, 78, 24, pressed);
+    ctx.fillStyle = '#000'; ctx.save(); ctx.translate(16, y + 16); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+    txt('Пуск', 28, y + 17, `700 14px ${F95}`, '#000', 'left', 'middle');
+    let x = 88;
+    if (quick) for (const c of quick) { appIcon(x, y + 7, 18, c); x += 24; }
+    for (const [label, active] of items) { bevel(x + 4, y + 4, 170, 24, active); txt(label, x + 14, y + 17, `${active ? 700 : 400} 13px ${F95}`, '#000', 'left', 'middle'); x += 176; }
+    bevel(SW - 74, y + 4, 70, 24, true);
+    txt('12:00', SW - 39, y + 17, `400 13px ${F95}`, '#000', 'center', 'middle');
+    ctx.textBaseline = 'alphabetic';
+  }
+  // Windows 95-style start menu.
+  function menu95(p, hover, sub, banner) {
+    if (p <= 0) return;
+    const items = ['Программы', 'Документы', 'Настройка', 'Поиск', 'Справка', 'Выполнить...', 'Завершение работы...'];
+    const mh = items.length * 36 + 14, mw = 236, y = SH - 32 - mh * p;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, SW, SH - 32); ctx.clip();
+    bevel(2, y, mw, mh);
+    const g = ctx.createLinearGradient(0, y + mh, 0, y); g.addColorStop(0, '#000080'); g.addColorStop(1, '#1084d0');
+    ctx.fillStyle = g; ctx.fillRect(5, y + 3, 26, mh - 6);
+    ctx.save(); ctx.translate(24, y + mh - 12); ctx.rotate(-Math.PI / 2); txt(banner, 0, 0, `700 18px ${F95}`, '#fff'); ctx.restore();
+    items.forEach((it, k) => {
+      const iy = y + 7 + k * 36 + (k === 6 ? 6 : 0);
+      if (k === 6) { ctx.fillStyle = '#808080'; ctx.fillRect(36, iy - 5, mw - 40, 1); ctx.fillStyle = '#fff'; ctx.fillRect(36, iy - 4, mw - 40, 1); }
+      if (k === hover) { ctx.fillStyle = '#000080'; ctx.fillRect(34, iy, mw - 36, 34); }
+      appIcon(42, iy + 6, 22, ['#c9a227', '#2e7dd1', '#7a7a7a', '#3b8a3b', '#b04040', '#555', '#333'][k]);
+      txt(it, 74, iy + 18, `400 14px ${F95}`, k === hover ? '#fff' : '#000', 'left', 'middle');
+      if (k < 3) txt('▸', mw - 14, iy + 18, `400 12px ${F95}`, k === hover ? '#fff' : '#000', 'center', 'middle');
+    });
+    if (sub > 0) {
+      const sitems = ['Стандартные', 'Автозагрузка', 'Проводник', 'Сеанс MS-DOS'];
+      const sx = mw + 2, sy = y + 7;
+      ctx.globalAlpha *= sub; bevel(sx, sy, 200, sitems.length * 32 + 8);
+      sitems.forEach((s, k) => { appIcon(sx + 10, sy + 9 + k * 32, 20, ['#c9a227', '#c9a227', '#d9b23a', '#222'][k]); txt(s, sx + 40, sy + 20 + k * 32, `400 14px ${F95}`, '#000', 'left', 'middle'); });
+      ctx.globalAlpha /= sub;
+    }
+    ctx.restore(); ctx.textBaseline = 'alphabetic';
+  }
+
+  /* =====================================================================
+     RECREATED INTERFACES, one per version (draw in screen-local coords)
+     ===================================================================== */
+  // --- MS-DOS ---
+  const DOS_OUT = [' Том в устройстве C не имеет метки', ' Каталог C:\\', '', 'COMMAND  COM      25 307', 'AUTOEXEC BAT         128', 'CONFIG   SYS          96', 'GAMES        <DIR>', '        4 файл(ов)', ''];
+  function mDOS(tau) {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, SW, SH);
+    ctx.font = `400 24px ${MONO}`; ctx.fillStyle = '#c8c8c8'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    const lh = 32; let row = 0, caret = null;
+    const line = s => { ctx.fillText(s, 30, 52 + row * lh); row++; };
+    if (tau > 0.35) line('Запуск MS-DOS...');
+    if (tau > 0.55) line('');
+    if (tau > 0.7) { const s = 'C:\\>' + typed(tau, 0.9, 'dir', 9); caret = [s, row]; line(s); }
+    DOS_OUT.forEach((s, k) => { if (tau > 1.6 + k * 0.08) { line(s); caret = null; } });
+    if (tau > 2.5) { const s = 'C:\\>' + typed(tau, 3.6, 'cd games', 11); caret = [s, row]; line(s); }
+    if (tau > 4.6) { caret = ['C:\\GAMES>', row]; line('C:\\GAMES>'); }
+    if (caret && blink(tau)) ctx.fillRect(30 + ctx.measureText(caret[0]).width + 2, 52 + caret[1] * lh + 4, 14, 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; for (let y = 0; y < SH; y += 4) ctx.fillRect(0, y, SW, 1.5);
+  }
+
+  // --- Windows 1.0: tiled windows ---
+  function mW1(tau) {
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, SW, SH);
+    const tile = (x, y, w, h, title, t0) => {
+      const p = prog(tau, t0, t0 + 0.25); if (p <= 0) return null;
+      ga(p);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.fillStyle = '#1d3f8f'; ctx.fillRect(x + 2, y + 2, w - 4, 24);
+      txt(title, x + w / 2, y + 15, `700 15px ${F95}`, '#fff', 'center', 'middle');
+      return { x: x + 4, y: y + 28, w: w - 8, h: h - 30 };
+    };
+    const ex = tile(0, 0, 480, 468, 'MS-DOS Executive', 0.3);
+    if (ex) {
+      txt('Файл   Вид   Специальные', ex.x + 8, ex.y + 16, `400 14px ${F95}`, '#000', 'left', 'middle');
+      ctx.fillStyle = '#000'; ctx.fillRect(ex.x, ex.y + 30, ex.w, 1.5);
+      txt('A   B   C      C:\\WINDOWS', ex.x + 8, ex.y + 50, `700 14px ${MONO}`, '#000', 'left', 'middle');
+      ['CALC.EXE', 'CLOCK.EXE', 'CONTROL.EXE', 'MSDOS.EXE', 'NOTEPAD.EXE', 'PAINT.EXE', 'REVERSI.EXE', 'TERMINAL.EXE', 'WIN.INI', 'WRITE.EXE'].forEach((f, k) => {
+        const sel = k === 4 && tau > 1.1;
+        const fx = ex.x + 14 + (k % 2) * 220, fy = ex.y + 90 + Math.floor(k / 2) * 34;
+        if (sel) { ctx.fillStyle = '#000'; ctx.fillRect(fx - 4, fy - 13, 140, 24); }
+        txt(f, fx, fy, `400 15px ${MONO}`, sel ? '#fff' : '#000', 'left', 'middle');
+      });
+    }
+    const ck = tile(480, 0, 480, 234, 'Часы', 0.6);
+    if (ck) {
+      const cx = 720, cy = 130, r = 82;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
+      for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6; ctx.fillStyle = '#000'; ctx.fillRect(cx + Math.cos(a) * (r - 12) - 3, cy + Math.sin(a) * (r - 12) - 3, 6, 6); }
+      const m = tau * 0.9, hA = -Math.PI / 2 + m / 12, mA = -Math.PI / 2 + m;
+      ctx.lineCap = 'round'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(hA) * 44, cy + Math.sin(hA) * 44); ctx.stroke();
+      ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(mA) * 66, cy + Math.sin(mA) * 66); ctx.stroke();
+    }
+    const np = tile(480, 234, 480, 234, 'Блокнот', 0.9);
+    if (np) {
+      txt('Файл   Правка   Поиск', np.x + 8, np.y + 16, `400 14px ${F95}`, '#000', 'left', 'middle');
+      ctx.fillStyle = '#000'; ctx.fillRect(np.x, np.y + 30, np.w, 1.5);
+      const s = typed(tau, 1.4, 'Привет из 1985 года!', 14);
+      txt(s, np.x + 12, np.y + 66, `400 20px ${MONO}`, '#000');
+      if (blink(tau)) { ctx.fillStyle = '#000'; ctx.fillRect(np.x + 14 + ctx.measureText(s).width, np.y + 48, 2, 22); }
+    }
+    ga(prog(tau, 1.0, 1.3)); ctx.fillStyle = '#dcdcdc'; ctx.fillRect(0, 468, SW, 72); ctx.fillStyle = '#000'; ctx.fillRect(0, 468, SW, 2);
+    ['Калькулятор', 'Рисование', 'Реверси', 'Терминал'].forEach((l, k) => { appIcon(40 + k * 130, 478, 30, ['#555', '#a33', '#262', '#335'][k]); txt(l, 55 + k * 130, 528, `400 12px ${F95}`, '#000', 'center'); });
+    ga(1); const [px, py] = pathAt(tau, [[0.5, 760, 420], [1.2, 160, 205], [2.6, 600, 330], [5, 420, 400]]); cursor(px, py);
+  }
+
+  // --- Windows 3.0 / 3.1: Program Manager + Solitaire ---
+  function card(x, y, face, label, red) {
+    rr(x, y, 46, 64, 4); ctx.fillStyle = face ? '#fff' : '#1c3fae'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.stroke();
+    if (!face) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; for (let k = 6; k < 46; k += 7) { ctx.beginPath(); ctx.moveTo(x + k, y + 4); ctx.lineTo(x + k, y + 60); ctx.stroke(); } return; }
+    txt(label, x + 5, y + 16, `700 14px ${F95}`, red ? '#c00' : '#000');
+    txt(label.slice(-1), x + 23, y + 46, `400 26px ${SANS}`, red ? '#c00' : '#000', 'center');
+  }
+  function mW3(tau) {
+    ctx.fillStyle = '#3d7a7a'; ctx.fillRect(0, 0, SW, SH);
+    const pmP = prog(tau, 0.3, 0.6);
+    if (pmP > 0) {
+      ga(pmP);
+      const c = win3(30, 24, 620, 420, 'Диспетчер программ');
+      txt('Файл   Параметры   Окно   Справка', c.x + 10, c.y + 15, `400 14px ${F95}`, '#000', 'left', 'middle');
+      ctx.fillStyle = '#000'; ctx.fillRect(c.x, c.y + 28, c.w, 1);
+      const g = win3(c.x + 14, c.y + 40, 420, 210, 'Главная', '#4a4a8a');
+      ['Диспетчер файлов', 'Панель управления', 'Сеанс MS-DOS', 'Диспетчер печати'].forEach((l, k) => {
+        appIcon(g.x + 30 + k * 98, g.y + 22, 40, ['#c9a227', '#3a6ea5', '#222', '#777'][k]);
+        wrap(l, 92).forEach((ln, j) => txt(ln, g.x + 50 + k * 98, g.y + 82 + j * 15, `400 12px ${F95}`, '#000', 'center'));
+      });
+      const hot = tau > 1.95 && tau < 2.35;
+      ['Стандартные', 'Игры', 'Автозагрузка'].forEach((l, k) => {
+        const ix = c.x + 40 + k * 120, iy = c.y + c.h - 76;
+        ctx.fillStyle = '#fff'; ctx.fillRect(ix, iy, 40, 30); ctx.strokeStyle = '#000'; ctx.strokeRect(ix + .5, iy + .5, 39, 29);
+        ctx.fillStyle = '#000080'; ctx.fillRect(ix, iy, 40, 7);
+        if (k === 1 && hot) { ctx.fillStyle = '#000080'; ctx.fillRect(ix - 16, iy + 36, 72, 18); }
+        txt(l, ix + 20, iy + 49, `400 12px ${F95}`, k === 1 && hot ? '#fff' : '#000', 'center');
+      });
+    }
+    const sp = prog(tau, 2.35, 2.55);
+    if (sp > 0) {
+      ga(sp);
+      const c = win3(470, 140, 460, 380, 'Косынка');
+      ctx.fillStyle = '#007a00'; ctx.fillRect(c.x, c.y, c.w, c.h);
+      card(c.x + 14, c.y + 14, false);
+      for (let k = 0; k < 4; k++) { rr(c.x + 192 + k * 62, c.y + 14, 46, 64, 4); ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.stroke(); }
+      const tops = ['K♠', '7♥', '3♣', 'Q♦', '9♠', '5♥', 'A♣'];
+      for (let col = 0; col < 7; col++) {
+        const p = eOut(prog(tau, 2.6 + col * 0.07, 2.85 + col * 0.07));
+        if (p <= 0) continue;
+        const tx = c.x + 14 + col * 62, ty = c.y + 100;
+        for (let k = 0; k < col; k++) card(lerp(c.x + 14, tx, p), lerp(c.y + 14, ty + k * 10, p), false);
+        card(lerp(c.x + 14, tx, p), lerp(c.y + 14, ty + col * 10, p), p > 0.7, tops[col], /[♥♦]/.test(tops[col]));
+      }
+    }
+    ga(1); const [px, py] = pathAt(tau, [[0.4, 700, 460], [1.8, 205, 370], [2.4, 205, 370], [4, 640, 300]]); cursor(px, py);
+  }
+
+  // --- Windows NT 3.1: secure logon, then a console ---
+  function key(x, y, label, down) {
+    rr(x, y + (down ? 3 : 0), 74, 48, 6); ctx.fillStyle = down ? '#9a9a9a' : '#e8e8e8'; ctx.fill(); ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5; ctx.stroke();
+    txt(label, x + 37, y + 25 + (down ? 3 : 0), `700 16px ${F95}`, '#222', 'center', 'middle'); ctx.textBaseline = 'alphabetic';
+  }
+  function mNT(tau) {
+    ctx.fillStyle = '#2f4f7f'; ctx.fillRect(0, 0, SW, SH);
+    if (tau < 4.1) {
+      ga(prog(tau, 0.3, 0.55));
+      const c = win3(250, 120, 460, 270, 'Вход в Windows NT');
+      ctx.fillStyle = '#c0c0c0'; ctx.fillRect(c.x, c.y, c.w, c.h);
+      if (tau < 2.6) {
+        txt('Нажмите Ctrl+Alt+Del,', c.x + c.w / 2, c.y + 50, `400 18px ${F95}`, '#000', 'center');
+        txt('чтобы войти в систему.', c.x + c.w / 2, c.y + 76, `400 18px ${F95}`, '#000', 'center');
+        key(c.x + 70, c.y + 130, 'Ctrl', tau > 1.8 && tau < 2.45);
+        key(c.x + 189, c.y + 130, 'Alt', tau > 1.95 && tau < 2.45);
+        key(c.x + 308, c.y + 130, 'Del', tau > 2.1 && tau < 2.45);
+      } else {
+        const field = (label, val, y) => {
+          txt(label, c.x + 24, y + 15, `400 15px ${F95}`, '#000', 'left', 'middle');
+          bevel(c.x + 150, y, 270, 28, true, '#fff'); txt(val, c.x + 158, y + 15, `400 15px ${F95}`, '#000', 'left', 'middle');
+        };
+        field('Пользователь:', typed(tau, 2.7, 'admin', 10), c.y + 30);
+        field('Пароль:', '•'.repeat(typed(tau, 3.4, '      ', 12).length), c.y + 78);
+        bevel(c.x + 170, c.y + 150, 110, 32, tau > 3.95); txt('OK', c.x + 225, c.y + 167, `700 15px ${F95}`, '#000', 'center', 'middle');
+      }
+      ctx.textBaseline = 'alphabetic';
+    } else {
+      ga(prog(tau, 4.1, 4.35));
+      const g = win3(30, 30, 520, 300, 'Диспетчер программ');
+      ['Главная', 'Стандартные', 'Администрирование'].forEach((l, k) => {
+        const ix = g.x + 40 + k * 160, iy = g.y + 60;
+        ctx.fillStyle = '#fff'; ctx.fillRect(ix, iy, 40, 30); ctx.strokeStyle = '#000'; ctx.strokeRect(ix + .5, iy + .5, 39, 29); ctx.fillStyle = '#000080'; ctx.fillRect(ix, iy, 40, 7);
+        txt(l, ix + 20, iy + 50, `400 12px ${F95}`, '#000', 'center');
+      });
+      const c = win3(360, 190, 560, 300, 'Командная строка');
+      ctx.fillStyle = '#000'; ctx.fillRect(c.x, c.y, c.w, c.h);
+      const lines = ['Microsoft(R) Windows NT(TM)', '(C) Корпорация Майкрософт, 1985-1993.', '', 'C:\\>' + typed(tau, 4.6, 'ver', 8)];
+      if (tau > 5.2) lines.push('', 'Windows NT Версия 3.1', '', 'C:\\>');
+      ctx.font = `400 17px ${MONO}`; ctx.fillStyle = '#c8c8c8'; ctx.textAlign = 'left';
+      lines.forEach((l, k) => ctx.fillText(l, c.x + 10, c.y + 26 + k * 24));
+      if (blink(tau)) ctx.fillRect(c.x + 12 + ctx.measureText(lines[lines.length - 1]).width, c.y + 30 + (lines.length - 1) * 24, 10, 3);
+    }
+  }
+
+  // --- Windows 95 ---
+  function mW95(tau) {
+    ctx.fillStyle = '#008080'; ctx.fillRect(0, 0, SW, SH);
+    [['Мой компьютер', '#9a9a9a'], ['Сетевое окружение', '#3a6ea5'], ['Корзина', '#7a8a8a'], ['Портфель', '#b07a30']].forEach(([l, c], k) => deskIcon(56, 22 + k * 96, l, c, `400 13px ${F95}`, '#fff'));
+    const wp = eOut(prog(tau, 0.45, 0.75));
+    if (wp > 0) {
+      ga(wp); const c = win9x(250, 40, 470, 290, 'Мой компьютер', false);
+      txt('Файл   Правка   Вид   Справка', c.x + 8, c.y + 12, `400 13px ${F95}`, '#000', 'left', 'middle');
+      [['Диск 3,5 (A:)', '#888'], ['(C:)', '#666'], ['(D:)', '#4a6'], ['Принтеры', '#555'], ['Панель управления', '#3a6ea5']].forEach(([l, col], k) => {
+        const ix = c.x + 60 + (k % 4) * 105, iy = c.y + 40 + Math.floor(k / 4) * 100;
+        appIcon(ix - 20, iy, 40, col); wrap(l, 100).forEach((ln, j) => txt(ln, ix, iy + 58 + j * 15, `400 12px ${F95}`, '#000', 'center'));
+      });
+    }
+    ga(1);
+    const open = eOut(prog(tau, 1.9, 2.15));
+    tb95(wp > 0 ? [['Мой компьютер', open <= 0]] : [], open > 0);
+    const hover = tau > 2.5 ? 0 : -1;
+    menu95(open, hover, prog(tau, 3.0, 3.2), 'Windows 95');
+    const mh = 7 * 36 + 14;
+    const [px, py] = pathAt(tau, [[0.3, 640, 440], [1.7, 40, SH - 16], [2.5, 120, SH - 32 - mh + 24], [3.2, 300, SH - 32 - mh + 24], [4.2, 340, SH - 32 - mh + 86]]); cursor(px, py);
+  }
+
+  // --- Windows 98 / ME ---
+  function mW98(tau) {
+    ctx.fillStyle = '#008080'; ctx.fillRect(0, 0, SW, SH);
+    [['Мой компьютер', '#9a9a9a'], ['Мои документы', '#c9a227'], ['Корзина', '#7a8a8a'], ['Internet Explorer', '#2e7dd1']].forEach(([l, c], k) => deskIcon(56, 22 + k * 96, l, c, `400 13px ${F95}`, '#fff'));
+    const wp = eOut(prog(tau, 0.85, 1.1));
+    if (wp > 0) {
+      ga(wp); const c = win9x(150, 16, 640, 440, 'Добро пожаловать - Microsoft Internet Explorer', true);
+      ctx.fillStyle = '#c0c0c0'; ctx.fillRect(c.x, c.y, c.w, 76);
+      txt('Файл  Правка  Вид  Избранное  Сервис  Справка', c.x + 8, c.y + 12, `400 13px ${F95}`, '#000', 'left', 'middle');
+      ['Назад', 'Вперёд', 'Стоп', 'Обновить', 'Домой'].forEach((b, k) => txt(b, c.x + 30 + k * 82, c.y + 36, `400 12px ${F95}`, '#000', 'center', 'middle'));
+      txt('Адрес', c.x + 8, c.y + 63, `400 13px ${F95}`, '#000', 'left', 'middle');
+      bevel(c.x + 52, c.y + 52, c.w - 110, 22, true, '#fff');
+      txt('http://www.example.com/', c.x + 58, c.y + 63, `400 13px ${F95}`, '#000', 'left', 'middle');
+      const loading = tau < 2.5;
+      bevel(c.x + c.w - 50, c.y + 6, 44, 40); ctx.fillStyle = '#1a3f8f'; ctx.beginPath();
+      ctx.arc(c.x + c.w - 28, c.y + 26, 13, 0, 7); ctx.fill();
+      if (loading) { const a = tau * 8; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(c.x + c.w - 28 + Math.cos(a) * 8, c.y + 26 + Math.sin(a) * 8, 3, 0, 7); ctx.fill(); }
+      const py0 = c.y + 80, lp = prog(tau, 1.2, 2.4);
+      ctx.save(); ctx.beginPath(); ctx.rect(c.x, py0, c.w, (c.h - 80) * lp); ctx.clip();
+      ctx.fillStyle = '#336699'; ctx.fillRect(c.x, py0, c.w, 60);
+      txt('Добро пожаловать в Интернет!', c.x + 20, py0 + 38, `700 22px ${F95}`, '#fff');
+      for (let k = 0; k < 7; k++) { ctx.fillStyle = k % 3 === 0 ? '#0000ee' : '#bbb'; ctx.fillRect(c.x + 20, py0 + 84 + k * 28, 250 + ((k * 97) % 280), 10); }
+      ctx.fillStyle = '#ffcc33'; ctx.fillRect(c.x + 400, py0 + 80, 200, 140);
+      ctx.restore();
+    }
+    const rp = eOut(prog(tau, 3.6, 3.85));
+    if (rp > 0) {
+      ga(rp); const c = win9x(470, 270, 400, 170, 'Восстановление системы', true);
+      ctx.fillStyle = '#c0c0c0'; ctx.fillRect(c.x, c.y, c.w, c.h);
+      txt('Возврат к состоянию на 10:00...', c.x + 20, c.y + 34, `400 14px ${F95}`, '#000');
+      bevel(c.x + 20, c.y + 60, c.w - 40, 26, true, '#fff');
+      const n = Math.floor(prog(tau, 3.9, 5.8) * 22);
+      for (let k = 0; k < n; k++) { ctx.fillStyle = '#000080'; ctx.fillRect(c.x + 25 + k * 15, c.y + 64, 12, 18); }
+    }
+    ga(1);
+    tb95(wp > 0 ? [['Microsoft Internet Explorer', true]] : [], false, ['#2e7dd1', '#c9a227', '#3a8a3a']);
+    const [px, py] = pathAt(tau, [[0.2, 500, 440], [0.75, 56, 330], [1.5, 420, 380], [3.4, 660, 330], [5, 700, 360]]); cursor(px, py);
+  }
+
+  // --- Windows 2000 ---
+  function mW2000(tau) {
+    ctx.fillStyle = '#3a6ea5'; ctx.fillRect(0, 0, SW, SH);
+    [['Мои документы', '#c9a227'], ['Мой компьютер', '#9a9a9a'], ['Сетевое окружение', '#3a8ab5'], ['Корзина', '#7a8a8a']].forEach(([l, c], k) => deskIcon(56, 22 + k * 96, l, c, `400 13px ${F95}`, '#fff'));
+    const wp = eOut(prog(tau, 0.45, 0.75));
+    if (wp > 0) {
+      ga(wp); const c = win9x(200, 30, 440, 270, 'Мой компьютер', true);
+      [['Диск 3,5 (A:)', '#888'], ['Локальный диск (C:)', '#666'], ['Компакт-диск (D:)', '#4a6'], ['Панель управления', '#3a6ea5']].forEach(([l, col], k) => {
+        const ix = c.x + 60 + k * 102, iy = c.y + 40;
+        appIcon(ix - 20, iy, 40, col); wrap(l, 96).forEach((ln, j) => txt(ln, ix, iy + 58 + j * 15, `400 12px ${F95}`, '#000', 'center'));
+      });
+    }
+    const mp = eOut(prog(tau, 2.5, 2.8));
+    if (mp > 0) {
+      ga(mp); const c = win9x(380, 170, 560, 320, 'Active Directory — пользователи и компьютеры', true);
+      ctx.fillStyle = '#c0c0c0'; ctx.fillRect(c.x + 190, c.y, 2, c.h);
+      ['▾ example.local', '    Builtin', '    Computers', '    Domain Controllers', '    Users'].forEach((l, k) => {
+        if (k === 4) { ctx.fillStyle = '#000080'; ctx.fillRect(c.x + 30, c.y + 14 + k * 28, 70, 22); }
+        txt(l, c.x + 10, c.y + 26 + k * 28, `400 13px ${F95}`, k === 4 ? '#fff' : '#000', 'left', 'middle');
+      });
+      ['Администратор', 'Гость', 'Иван Петров', 'Анна Смирнова', 'Отдел продаж'].forEach((l, k) => {
+        const p = prog(tau, 3.0 + k * 0.15, 3.2 + k * 0.15); if (p <= 0) return;
+        ga(mp * p); appIcon(c.x + 206, c.y + 14 + k * 30, 20, k === 4 ? '#c9a227' : '#3a6ea5');
+        txt(l, c.x + 236, c.y + 25 + k * 30, `400 13px ${F95}`, '#000', 'left', 'middle');
+      });
+    }
+    ga(1);
+    tb95([['Мой компьютер', mp <= 0], ...(mp > 0 ? [['Active Directory', true]] : [])], false, ['#2e7dd1', '#c9a227']);
+    const [px, py] = pathAt(tau, [[0.3, 700, 440], [2.4, 520, 260], [3.6, 640, 360]]); cursor(px, py);
+  }
+
+  // --- Windows XP ---
+  function hillsXP() {
+    const sky = ctx.createLinearGradient(0, 0, 0, 330); sky.addColorStop(0, '#2d6fd6'); sky.addColorStop(1, '#9fd0ff');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    [[180, 90, 120, 26], [300, 70, 90, 20], [640, 120, 150, 30], [780, 100, 80, 18]].forEach(([x, y, w, h]) => { ctx.beginPath(); ctx.ellipse(x, y, w, h, 0, 0, 7); ctx.fill(); });
+    const g = ctx.createLinearGradient(0, 240, 0, SH); g.addColorStop(0, '#6fbf3f'); g.addColorStop(1, '#2c7a1c');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, 340); ctx.quadraticCurveTo(420, 200, SW, 330); ctx.lineTo(SW, SH); ctx.lineTo(0, SH); ctx.closePath(); ctx.fill();
+  }
+  function mXP(tau) {
+    hillsXP();
+    deskIcon(890, 360, 'Корзина', '#7aa0c8', `400 13px ${FXP}`, '#fff', true);
+    // taskbar
+    const y = SH - 34, tg = ctx.createLinearGradient(0, y, 0, SH);
+    tg.addColorStop(0, '#3f8cf3'); tg.addColorStop(0.1, '#245edb'); tg.addColorStop(1, '#1941a5');
+    ctx.fillStyle = tg; ctx.fillRect(0, y, SW, 34);
+    const open = eOut(prog(tau, 1.9, 2.15));
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(96, y); ctx.arcTo(112, y, 112, y + 17, 17); ctx.arcTo(112, SH, 96, SH, 17); ctx.lineTo(0, SH); ctx.closePath();
+    const sg = ctx.createLinearGradient(0, y, 0, SH); sg.addColorStop(0, open > 0 ? '#2f7d2f' : '#4cb04c'); sg.addColorStop(1, '#2a7a2a');
+    ctx.fillStyle = sg; ctx.fill();
+    txt('пуск', 26, y + 24, `italic 700 19px ${FXP}`, 'rgba(0,0,0,.35)'); txt('пуск', 25, y + 23, `italic 700 19px ${FXP}`, '#fff');
+    ctx.fillStyle = '#0f8ceb'; ctx.fillRect(SW - 90, y, 90, 34); txt('12:00', SW - 45, y + 22, `400 13px ${FXP}`, '#fff', 'center');
+    // start menu
+    if (open > 0) {
+      const mw = 420, mh = 420, my = y - mh * open;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, SW, y); ctx.clip();
+      rr(0, my, mw, mh, 8); ctx.fillStyle = '#1c5ad8'; ctx.fill();
+      const hg = ctx.createLinearGradient(0, my, 0, my + 60); hg.addColorStop(0, '#1f6be8'); hg.addColorStop(1, '#0d4fc7');
+      ctx.fillStyle = hg; ctx.fillRect(0, my + 4, mw, 56);
+      rr(14, my + 12, 40, 40, 6); ctx.fillStyle = '#f0a040'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      txt('Пользователь', 66, my + 38, `700 17px ${FXP}`, '#fff');
+      ctx.fillStyle = '#fff'; ctx.fillRect(3, my + 60, 210, mh - 104);
+      ctx.fillStyle = '#d3e5fa'; ctx.fillRect(213, my + 60, mw - 216, mh - 104);
+      ['Интернет', 'Электронная почта', '', 'Paint', 'Блокнот', 'Калькулятор', 'Проигрыватель'].forEach((l, k) => {
+        if (!l) { ctx.fillStyle = '#ccc'; ctx.fillRect(12, my + 78 + k * 38, 190, 1); return; }
+        appIcon(12, my + 68 + k * 38, 24, ['#2e7dd1', '#4a90e2', '', '#d04040', '#6aa0d0', '#777', '#f08030'][k]);
+        txt(l, 44, my + 85 + k * 38, `${k < 2 ? 700 : 400} 13px ${FXP}`, '#000', 'left', 'middle');
+      });
+      txt('Все программы ▸', 60, my + mh - 58, `700 13px ${FXP}`, '#000', 'left', 'middle');
+      ['Мои документы', 'Мои рисунки', 'Моя музыка', 'Мой компьютер', 'Панель управления', 'Справка и поддержка', 'Поиск', 'Выполнить...'].forEach((l, k) => {
+        const hv = k === 3 && tau > 3.0;
+        if (hv) { ctx.fillStyle = '#316ac5'; ctx.fillRect(216, my + 66 + k * 36, mw - 222, 32); }
+        txt(l, 228, my + 82 + k * 36, `${k < 4 ? 700 : 400} 13px ${FXP}`, hv ? '#fff' : '#0b2d6b', 'left', 'middle');
+      });
+      ctx.fillStyle = '#1c5ad8'; ctx.fillRect(0, my + mh - 44, mw, 44);
+      txt('Выход из системы', 150, my + mh - 20, `400 13px ${FXP}`, '#fff', 'center', 'middle');
+      txt('Выключение', 330, my + mh - 20, `400 13px ${FXP}`, '#fff', 'center', 'middle');
+      ctx.restore();
+    }
+    ctx.textBaseline = 'alphabetic';
+    const [px, py] = pathAt(tau, [[0.3, 620, 300], [1.7, 52, SH - 17], [2.8, 300, SH - 34 - 420 + 82 + 3 * 36], [4.5, 320, SH - 34 - 420 + 82 + 3 * 36]]); cursor(px, py);
+  }
+
+  // --- Vista: glass, sidebar, UAC ---
+  function auroraBg() {
+    const g = ctx.createLinearGradient(0, 0, SW, SH); g.addColorStop(0, '#021616'); g.addColorStop(1, '#0a3a3e');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.lineCap = 'round';
+    [['rgba(90,240,180,0.18)', 60, 120], ['rgba(80,170,255,0.16)', 40, 200], ['rgba(170,255,210,0.12)', 90, 280]].forEach(([c, w, y0]) => {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(-50, y0 + 200); ctx.bezierCurveTo(300, y0 - 100, 600, y0 + 260, 1010, y0 - 40); ctx.stroke();
+    });
+  }
+  function orbBar(pinned) {
+    const y = SH - 40, g = ctx.createLinearGradient(0, y, 0, SH);
+    g.addColorStop(0, 'rgba(70,80,95,0.9)'); g.addColorStop(0.5, 'rgba(15,20,28,0.92)'); g.addColorStop(1, 'rgba(5,8,12,0.95)');
+    ctx.fillStyle = g; ctx.fillRect(0, y, SW, 40);
+    const og = ctx.createRadialGradient(30, y + 14, 2, 30, y + 20, 19); og.addColorStop(0, '#9fd4ff'); og.addColorStop(0.5, '#2b7fd6'); og.addColorStop(1, '#0a2f63');
+    ctx.fillStyle = og; ctx.beginPath(); ctx.arc(30, y + 20, 18, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.ellipse(30, y + 12, 11, 6, 0, 0, 7); ctx.fill();
+    (pinned || []).forEach((c, k) => { rr(66 + k * 54, y + 4, 46, 32, 4); ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fill(); appIcon(78 + k * 54, y + 8, 22, c, '#fff', 0.5); });
+    txt('12:00', SW - 40, y + 25, `400 13px ${FSEG}`, '#fff', 'center');
+  }
+  function mVista(tau) {
+    auroraBg();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(800, 0, 160, SH - 40);
+    const cg = ctx.createRadialGradient(880, 90, 10, 880, 90, 58); cg.addColorStop(0, '#ffffff'); cg.addColorStop(1, '#c9d3dc');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(880, 90, 56, 0, 7); ctx.fill();
+    const m = tau * 0.7; ctx.strokeStyle = '#222'; ctx.lineCap = 'round';
+    ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(880, 90); ctx.lineTo(880 + Math.cos(m / 12 - 1.4) * 28, 90 + Math.sin(m / 12 - 1.4) * 28); ctx.stroke();
+    ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(880, 90); ctx.lineTo(880 + Math.cos(m - 1.5) * 42, 90 + Math.sin(m - 1.5) * 42); ctx.stroke();
+    rr(818, 176, 124, 92, 10); ctx.fillStyle = 'rgba(20,24,30,.85)'; ctx.fill();
+    [[848, '#5fd35f', .6], [912, '#5fb0ff', .35]].forEach(([x, c, v]) => { ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(x, 226, 22, Math.PI * .8, Math.PI * 2.2); ctx.stroke(); ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(x, 226, 22, Math.PI * .8, Math.PI * (.8 + 1.4 * (v + .15 * Math.sin(tau * 2 + x)))); ctx.stroke(); });
+    const wp = eOut(prog(tau, 0.45, 0.8));
+    if (wp > 0) {
+      ga(wp); const c = winGlass(70, 40, 640, 380, 'Проводник');
+      ctx.fillStyle = '#eef3fa'; ctx.fillRect(c.x, c.y, 150, c.h);
+      ['Документы', 'Изображения', 'Музыка', 'Ещё »'].forEach((l, k) => txt(l, c.x + 16, c.y + 30 + k * 30, `400 13px ${FSEG}`, '#1e395b'));
+      ['Работа', 'Фото 2006', 'Музыка', 'Видео', 'Проекты', 'Архив'].forEach((l, k) => {
+        const ix = c.x + 200 + (k % 3) * 140, iy = c.y + 30 + Math.floor(k / 3) * 130;
+        rr(ix - 30, iy, 60, 48, 5); ctx.fillStyle = '#f2c94c'; ctx.fill(); ctx.fillStyle = '#e0a92a'; ctx.fillRect(ix - 30, iy, 26, 8);
+        txt(l, ix, iy + 70, `400 13px ${FSEG}`, '#222', 'center');
+      });
+    }
+    ga(1); orbBar(wp > 0 ? ['#2e7dd1', '#f2c94c'] : []);
+    const d = prog(tau, 3.6, 3.85) * (1 - prog(tau, 5.3, 5.55));
+    if (d > 0) {
+      ctx.fillStyle = `rgba(0,0,0,${0.55 * d})`; ctx.fillRect(0, 0, SW, SH);
+      ga(d);
+      rr(220, 140, 520, 250, 6); ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.fillStyle = '#e8b730'; ctx.fillRect(220, 140, 520, 8);
+      txt('Контроль учётных записей', 244, 184, `600 18px ${FSEG}`, '#1e395b');
+      txt('Программе требуется ваше разрешение', 244, 228, `400 16px ${FSEG}`, '#222');
+      txt('на продолжение.', 244, 252, `400 16px ${FSEG}`, '#222');
+      [['Продолжить', 440], ['Отмена', 590]].forEach(([l, x], k) => {
+        rr(x, 320, 130, 36, 4); ctx.fillStyle = k === 0 && tau > 5.15 ? '#bcdcf7' : '#eaf2fb'; ctx.fill(); ctx.strokeStyle = '#7aa6d6'; ctx.lineWidth = 1; ctx.stroke();
+        txt(l, x + 65, 343, `400 15px ${FSEG}`, '#000', 'center');
+      });
+    }
+    ga(1); const [px, py] = pathAt(tau, [[0.3, 760, 450], [3.0, 400, 300], [4.7, 400, 300], [5.1, 505, 338], [6, 560, 380]]); cursor(px, py);
+  }
+
+  // --- Windows 7: Aero Snap ---
+  function mW7(tau) {
+    const g = ctx.createRadialGradient(480, 240, 10, 480, 240, 700); g.addColorStop(0, '#7cc4ff'); g.addColorStop(0.35, '#1d6fd1'); g.addColorStop(1, '#07224d');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    for (let k = 0; k < 7; k++) { const a = k * 0.9 + 0.3; ctx.beginPath(); ctx.moveTo(480, 240); ctx.lineTo(480 + Math.cos(a) * 900, 240 + Math.sin(a) * 900); ctx.lineTo(480 + Math.cos(a + 0.25) * 900, 240 + Math.sin(a + 0.25) * 900); ctx.closePath(); ctx.fill(); }
+    const full = SH - 40;
+    const winAt = (nat, drag, t0, t1, snap, ts) => {
+      if (tau < t0) return nat;
+      if (tau < t1) { const p = eInOut(prog(tau, t0, t1)); return nat.map((v, i) => lerp(v, drag[i], p)); }
+      if (tau < ts) return drag;
+      const p = eOut(prog(tau, ts, ts + 0.2)); return drag.map((v, i) => lerp(v, snap[i], p));
+    };
+    const a = winAt([170, 60, 420, 300], [-40, 80, 420, 300], 1.4, 2.25, [0, 0, 480, full], 2.4);
+    const b = winAt([400, 130, 420, 300], [700, 150, 420, 300], 3.0, 3.65, [480, 0, 480, full], 3.8);
+    if (tau > 2.15 && tau < 2.45) { ctx.fillStyle = 'rgba(200,225,255,0.3)'; rr(4, 4, 472, full - 8, 6); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.stroke(); }
+    if (tau > 3.55 && tau < 3.85) { ctx.fillStyle = 'rgba(200,225,255,0.3)'; rr(484, 4, 472, full - 8, 6); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.stroke(); }
+    const pa = eOut(prog(tau, 0.4, 0.7));
+    if (pa > 0) {
+      ga(pa); const c = winGlass(a[0], a[1], a[2], a[3], 'Документ — WordPad');
+      for (let k = 0; k < 9 && 20 + k * 26 < c.h; k++) { ctx.fillStyle = '#c9ced6'; ctx.fillRect(c.x + 20, c.y + 24 + k * 26, Math.min(c.w - 40, 180 + ((k * 73) % 200)), 9); }
+    }
+    const pb = eOut(prog(tau, 0.7, 1.0));
+    if (pb > 0) {
+      ga(pb); const c = winGlass(b[0], b[1], b[2], b[3], 'Изображения');
+      const cols = ['#f4a261', '#2a9d8f', '#e76f51', '#8ab17d', '#457b9d', '#e9c46a'];
+      for (let k = 0; k < 6; k++) { const tw = (c.w - 50) / 3; ctx.fillStyle = cols[k]; ctx.fillRect(c.x + 12 + (k % 3) * (tw + 13), c.y + 14 + Math.floor(k / 3) * 110, tw, 96); }
+    }
+    ga(1); orbBar(['#2e7dd1', '#f2c94c', '#f08030', '#3aa55a']);
+    const [px, py] = pathAt(tau, [[0.3, 700, 450], [1.3, 300, 75], [2.25, 90, 95], [2.6, 220, 300], [2.95, 560, 145], [3.65, 860, 165], [4.4, 700, 360]]); cursor(px, py);
+  }
+
+  // --- Windows 8: Start screen with live tiles ---
+  const TILES8 = [
+    [0, 0, 2, 1, '#2b5797', 'Почта'], [2, 0, 1, 1, '#da532c', 'Фото'], [3, 0, 1, 1, '#00a300', 'Магазин'],
+    [0, 1, 1, 1, '#9f00a7', 'Музыка'], [1, 1, 1, 1, '#1e7145', 'Карты'], [2, 1, 2, 1, '#2d89ef', 'Погода', 'weather'],
+    [0, 2, 2, 1, '#e3a21a', 'Рабочий стол'], [2, 2, 1, 1, '#b91d47', 'Видео'], [3, 2, 1, 1, '#603cba', 'Игры'],
+    [4.4, 0, 2, 2, '#00aba9', 'Новости', 'news'], [4.4, 2, 1, 1, '#ee1111', 'Календарь', 'cal'], [5.4, 2, 1, 1, '#7e3878', 'Люди'],
+    [6.8, 0, 1, 1, '#ff0097', 'Камера'], [6.8, 1, 1, 1, '#99b433', 'Финансы']
+  ];
+  function mW8(tau) {
+    const g = ctx.createLinearGradient(0, 0, SW, SH); g.addColorStop(0, '#2a0a4f'); g.addColorStop(1, '#180531');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ga(eOut(prog(tau, 0.2, 0.5))); txt('Пуск', 50, 72, `300 46px ${FSEG}`, '#fff');
+    txt('Пользователь', SW - 80, 62, `400 18px ${FSEG}`, '#fff', 'right'); ctx.fillStyle = '#e3a21a'; ctx.fillRect(SW - 70, 40, 34, 34);
+    const u = 118, gap = 8, x0 = 50, y0 = 110;
+    TILES8.forEach(([cx, cy, w, h, col, label, live], k) => {
+      const p = eOut(prog(tau, 0.5 + k * 0.06, 0.85 + k * 0.06)); if (p <= 0) return;
+      const x = x0 + cx * (u + gap) + (1 - p) * 60, y = y0 + cy * (u + gap), tw = w * u + (w - 1) * gap, th = h * u + (h - 1) * gap;
+      ctx.save(); ctx.translate(x + tw / 2, y); ctx.scale(Math.max(0.02, p), 1); ga(p);
+      ctx.fillStyle = col; ctx.fillRect(-tw / 2, 0, tw, th);
+      if (live === 'weather') { txt('18°', -tw / 2 + 16, 62, `300 44px ${FSEG}`, '#fff'); txt('Москва · облачно', -tw / 2 + 16, 88, `400 14px ${FSEG}`, '#fff'); }
+      if (live === 'news') { const s = Math.floor(tau / 1.6) % 2; ctx.fillStyle = s ? '#008f8d' : '#00c4c1'; ctx.fillRect(-tw / 2, 0, tw, th * .6); txt(s ? 'Вышла Windows 8' : 'Плитки обновляются', -tw / 2 + 14, th * .6 + 34, `600 17px ${FSEG}`, '#fff'); }
+      if (live === 'cal') { txt('26', 0, 66, `300 48px ${FSEG}`, '#fff', 'center'); txt('пятница', 0, 88, `400 13px ${FSEG}`, '#fff', 'center'); }
+      if (!live || live === 'cal') appIcon(-12, 22, 24, 'rgba(255,255,255,.25)');
+      txt(label, -tw / 2 + 10, th - 10, `400 14px ${FSEG}`, '#fff');
+      ctx.restore();
+    });
+    ga(1);
+  }
+
+  // --- Windows 10: Start menu with tiles ---
+  function mW10(tau) {
+    const g = ctx.createLinearGradient(0, 0, SW, SH); g.addColorStop(0, '#00102e'); g.addColorStop(1, '#00337a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.fillStyle = 'rgba(80,170,255,0.10)';
+    for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.moveTo(SW, 60 + k * 30); ctx.lineTo(200 + k * 40, 0); ctx.lineTo(260 + k * 40, 0); ctx.closePath(); ctx.fill(); }
+    const y = SH - 40;
+    ctx.fillStyle = 'rgba(16,16,18,0.96)'; ctx.fillRect(0, y, SW, 40);
+    const open = eOut(prog(tau, 1.9, 2.1));
+    if (open > 0) { ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(0, y, 48, 40); }
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6; ctx.strokeRect(16.5, y + 12.5, 15, 15);
+    ctx.fillStyle = '#f2f2f2'; ctx.fillRect(48, y, 300, 40);
+    txt('Введите здесь текст для поиска', 62, y + 25, `400 13px ${FSEG}`, '#666');
+    ['#2e7dd1', '#f2c94c', '#1e88e5', '#3a3a3a'].forEach((c, k) => appIcon(370 + k * 48, y + 9, 22, c, '#fff', 0.2));
+    txt('12:00', SW - 46, y + 18, `400 12px ${FSEG}`, '#fff', 'center'); txt('29.07.2015', SW - 46, y + 33, `400 11px ${FSEG}`, '#fff', 'center');
+    if (open > 0) {
+      const mw = 600, mh = 430, my = y - mh + (1 - open) * 40;
+      ctx.save(); ctx.globalAlpha *= open;
+      ctx.fillStyle = 'rgba(30,30,32,0.97)'; ctx.fillRect(0, my, mw, mh);
+      for (let k = 0; k < 5; k++) { ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(16, my + 20 + k * 40, 16, 2); }
+      txt('Часто используемые', 62, my + 30, `600 13px ${FSEG}`, '#fff');
+      [['Параметры', '#555'], ['Проводник', '#f2c94c'], ['Microsoft Edge', '#1e88e5'], ['Почта', '#0078d7'], ['Калькулятор', '#444'], ['Paint', '#d04040']].forEach(([l, c], k) => {
+        appIcon(62, my + 52 + k * 46, 30, c, '#fff', 0.1); txt(l, 104, my + 72 + k * 46, `400 14px ${FSEG}`, '#fff');
+      });
+      txt('Плитки', 300, my + 30, `600 13px ${FSEG}`, '#fff');
+      [[300, 50, 1, 1, '#0078d7', 'Календарь'], [400, 50, 1, 1, '#005a9e', 'Почта'], [500, 50, 1, 1, '#1e88e5', 'Edge'],
+       [300, 150, 2, 1, '#0063b1', 'Погода'], [500, 150, 1, 1, '#2d7d9a', 'Фото'], [300, 250, 1, 1, '#004e8c', 'Магазин'], [400, 250, 2, 1, '#0078d7', 'Новости']].forEach(([x, ty, w, h, c, l], k) => {
+        const p = eOut(prog(tau, 2.1 + k * 0.05, 2.35 + k * 0.05));
+        ctx.globalAlpha = A * open * p; const tw = w * 96 + (w - 1) * 4;
+        ctx.fillStyle = c; ctx.fillRect(x, my + ty, tw, 96); txt(l, x + 8, my + ty + 86, `400 12px ${FSEG}`, '#fff');
+      });
+      ctx.restore();
+    }
+    ga(1); const [px, py] = pathAt(tau, [[0.3, 620, 300], [1.75, 24, y + 20], [2.8, 420, y - 300], [4.5, 360, y - 200]]); cursor(px, py);
+  }
+
+  // --- Windows 11: centered taskbar and Start ---
+  function mW11(tau) {
+    const g = ctx.createLinearGradient(0, 0, 0, SH); g.addColorStop(0, '#dbe9f8'); g.addColorStop(1, '#a9c9ee');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.save(); ctx.translate(480, 300);
+    for (let k = 0; k < 6; k++) {
+      ctx.rotate(Math.PI / 6 + Math.sin(tau * 0.3) * 0.01);
+      const pg = ctx.createLinearGradient(0, -40, 230, 40); pg.addColorStop(0, 'rgba(30,100,230,0.55)'); pg.addColorStop(1, 'rgba(170,210,255,0.15)');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(110, 0, 130, 46, 0, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+    const y = SH - 46;
+    ctx.fillStyle = 'rgba(243,246,250,0.92)'; ctx.fillRect(0, y, SW, 46); ctx.fillStyle = 'rgba(0,0,0,.08)'; ctx.fillRect(0, y, SW, 1);
+    const icons = ['start', '#3a3a3a', '#555', '#f2c94c', '#1e9e8f', '#2e7dd1'];
+    const ix0 = SW / 2 - icons.length * 22;
+    const open = eOut(prog(tau, 1.9, 2.15));
+    icons.forEach((c, k) => {
+      const x = ix0 + k * 44;
+      if (c === 'start') {
+        if (open > 0) { rr(x - 4, y + 5, 40, 36, 6); ctx.fillStyle = 'rgba(0,0,0,.07)'; ctx.fill(); }
+        const sg = ctx.createLinearGradient(x + 4, y + 11, x + 28, y + 35); sg.addColorStop(0, '#4cc2ff'); sg.addColorStop(1, '#0067c0');
+        rr(x + 4, y + 11, 24, 24, 6); ctx.fillStyle = sg; ctx.fill();
+      } else appIcon(x + 5, y + 12, 22, c, '#fff', 0.25);
+    });
+    txt('12:00', SW - 50, y + 20, `400 12px ${FSEG}`, '#111', 'center'); txt('05.10.2021', SW - 50, y + 36, `400 11px ${FSEG}`, '#111', 'center');
+    if (open > 0) {
+      const mw = 580, mh = 440, mx = (SW - mw) / 2, my = y - 14 - mh + (1 - open) * 30;
+      ctx.save(); ctx.globalAlpha *= open;
+      ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 30; rr(mx, my, mw, mh, 12); ctx.fillStyle = 'rgba(242,244,248,0.98)'; ctx.fill(); ctx.shadowBlur = 0;
+      rr(mx + 28, my + 22, mw - 56, 34, 17); ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.1)'; ctx.stroke();
+      txt('Поиск', mx + 52, my + 44, `400 14px ${FSEG}`, '#777');
+      txt('Закреплено', mx + 40, my + 90, `600 15px ${FSEG}`, '#111');
+      rr(mx + mw - 160, my + 72, 120, 26, 4); ctx.fillStyle = '#fff'; ctx.fill(); txt('Все приложения ›', mx + mw - 100, my + 90, `400 12px ${FSEG}`, '#111', 'center');
+      const apps = [['Браузер', '#1e9e8f'], ['Почта', '#0078d4'], ['Календарь', '#2a6fdb'], ['Магазин', '#3b3b3b'], ['Фото', '#2d7d9a'], ['Параметры', '#6b6b6b'],
+        ['Калькулятор', '#444'], ['Часы', '#3a5bd9'], ['Блокнот', '#4a90e2'], ['Paint', '#e0703a'], ['Проводник', '#f2c94c'], ['Терминал', '#222']];
+      apps.forEach(([l, c], k) => {
+        const p = eOut(prog(tau, 2.15 + k * 0.03, 2.4 + k * 0.03));
+        const ax = mx + 40 + (k % 6) * 86, ay = my + 114 + Math.floor(k / 6) * 84;
+        ctx.globalAlpha = A * open * p; appIcon(ax + 22, ay + (1 - p) * 10, 36, c, '#fff', 0.25);
+        txt(l, ax + 40, ay + 60, `400 11px ${FSEG}`, '#222', 'center');
+      });
+      ctx.globalAlpha = A * open;
+      txt('Рекомендуем', mx + 40, my + 306, `600 15px ${FSEG}`, '#111');
+      [['Отчёт.docx', '#2b579a'], ['Презентация.pptx', '#c43e1c']].forEach(([l, c], k) => { appIcon(mx + 40 + k * 250, my + 324, 32, c, '#fff', 0.2); txt(l, mx + 84 + k * 250, my + 338, `400 13px ${FSEG}`, '#111'); txt('Недавно', mx + 84 + k * 250, my + 354, `400 11px ${FSEG}`, '#777'); });
+      ctx.fillStyle = 'rgba(0,0,0,.05)'; ctx.fillRect(mx, my + mh - 52, mw, 52);
+      ctx.fillStyle = '#f0a040'; ctx.beginPath(); ctx.arc(mx + 52, my + mh - 26, 14, 0, 7); ctx.fill();
+      txt('Пользователь', mx + 76, my + mh - 21, `400 13px ${FSEG}`, '#111');
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(mx + mw - 46, my + mh - 26, 9, -1.1, 4.2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(mx + mw - 46, my + mh - 38); ctx.lineTo(mx + mw - 46, my + mh - 27); ctx.stroke();
+      ctx.restore();
+    }
+    ga(1); const [px, py] = pathAt(tau, [[0.3, 700, 250], [1.75, ix0 + 16, y + 24], [3.0, 560, 240], [4.5, 600, 300]]); cursor(px, py);
+  }
+
+  /* =====================================================================
+     CONTENT: the versions
+     ===================================================================== */
+  const VERSIONS = [
+    { name: 'MS-DOS', short: 'MS-DOS', year: 1981.6, date: 'Август 1981 · вместе с IBM PC', accent: [200, 200, 200], monitor: 'crt', draw: mDOS,
+      bullets: ['Только текст и команды', 'Одна задача за раз', 'Лимит 640 КБ основной памяти'],
+      memo: 'Приглашение C:\\> и команды dir, cd, copy',
+      sfx: [['type', 0.9, 3, 9], ['disk', 1.55], ['type', 3.6, 8, 11]] },
+    { name: 'Windows 1.0', short: '1.0', year: 1985.9, date: 'Ноябрь 1985', accent: [110, 140, 230], monitor: 'crt', draw: mW1,
+      bullets: ['Графическая оболочка поверх MS-DOS', 'Окна плиткой, без перекрытия', 'Мышь, Блокнот, Paint, Часы'],
+      memo: 'Перекрывать окна разрешили только в Windows 2.0 (1987)',
+      sfx: [['click', 1.15], ['type', 1.4, 20, 14]] },
+    { name: 'Windows 3.0 и 3.1', short: '3.x', year: 1990.4, date: '1990–1992', accent: [80, 190, 190], monitor: 'crt', draw: mW3,
+      bullets: ['Диспетчер программ и файлов', 'Шрифты TrueType (3.1)', 'Пасьянс «Косынка» и «Сапёр»'],
+      memo: 'Первый по-настоящему массовый успех Windows',
+      sfx: [['click', 2.0], ['click', 2.15], ['flips', 2.6, 7, 0.07]] },
+    { name: 'Windows NT 3.1', short: 'NT 3.1', year: 1993.6, date: 'Июль 1993', accent: [120, 150, 235], monitor: 'crt', draw: mNT,
+      bullets: ['Новое 32-битное ядро NT', 'Файловая система NTFS', 'Защита памяти, вход по паролю'],
+      memo: 'Фундамент всех версий от 2000 и XP до 11',
+      sfx: [['click', 1.8], ['click', 1.95], ['click', 2.1], ['type', 2.7, 5, 10], ['type', 3.4, 6, 12], ['click', 3.95], ['type', 4.6, 3, 8]] },
+    { name: 'Windows 95', short: '95', year: 1995.65, date: '24 августа 1995', accent: [0, 190, 190], monitor: 'crt', draw: mW95,
+      bullets: ['Кнопка «Пуск» и панель задач', 'Plug and Play, длинные имена файлов', '32-битные программы и многозадачность'],
+      memo: 'Ночные очереди в магазинах в день запуска',
+      sfx: [['click', 1.9], ['click', 3.0]] },
+    { name: 'Windows 98 и ME', short: '98/ME', year: 1998.5, date: '1998 / 2000', accent: [80, 140, 235], monitor: 'crt', draw: mW98,
+      bullets: ['Internet Explorer встроен в систему', 'Нормальная поддержка USB', 'ME: восстановление системы'],
+      memo: 'ME запомнилась как одна из самых нестабильных версий',
+      sfx: [['click', 0.8], ['click', 3.55]] },
+    { name: 'Windows 2000', short: '2000', year: 2000.13, date: 'Февраль 2000', accent: [100, 145, 205], monitor: 'crt', draw: mW2000,
+      bullets: ['Ядро NT для офисов и серверов', 'Active Directory', 'Намного стабильнее 95 и 98'],
+      memo: 'Надёжная рабочая лошадка для бизнеса',
+      sfx: [['click', 2.4], ['flips', 3.0, 5, 0.15]] },
+    { name: 'Windows XP', short: 'XP', year: 2001.8, date: '25 октября 2001', accent: [110, 200, 80], monitor: 'crt2', draw: mXP,
+      bullets: ['Ядро NT пришло домой', 'Яркая тема Luna', 'Быстрое переключение пользователей'],
+      memo: 'Поддержка длилась до апреля 2014 года',
+      sfx: [['click', 1.9]] },
+    { name: 'Windows Vista', short: 'Vista', year: 2007.08, date: 'Январь 2007', accent: [80, 220, 180], monitor: 'lcd', draw: mVista,
+      bullets: ['Полупрозрачный интерфейс Aero', 'Контроль учётных записей (UAC)', 'Поиск прямо в меню «Пуск»'],
+      memo: 'Высокие требования и бесконечные запросы UAC',
+      sfx: [['uac', 3.6], ['click', 5.15]] },
+    { name: 'Windows 7', short: '7', year: 2009.8, date: '22 октября 2009', accent: [90, 170, 255], monitor: 'lcd', draw: mW7,
+      bullets: ['Закрепление программ на панели', 'Aero Snap: окна по краям экрана', 'Быстрее и легче, чем Vista'],
+      memo: 'Одна из самых любимых версий',
+      sfx: [['snap', 2.4], ['snap', 3.8]] },
+    { name: 'Windows 8 и 8.1', short: '8', year: 2012.8, date: 'Октябрь 2012', accent: [180, 100, 235], monitor: 'lcd', draw: mW8,
+      bullets: ['Начальный экран с живыми плитками', 'Магазин приложений', 'Интерфейс под сенсорные экраны'],
+      memo: 'Убрали кнопку «Пуск», в 8.1 её вернули',
+      sfx: [['flips', 0.5, 14, 0.06]] },
+    { name: 'Windows 10', short: '10', year: 2015.57, date: '29 июля 2015', accent: [30, 150, 245], monitor: 'lcd2', draw: mW10,
+      bullets: ['Меню «Пуск» вернулось с плитками', 'Браузер Edge и помощник Cortana', 'Обновления как услуга'],
+      memo: 'Поддержка закончилась 14 октября 2025 года',
+      sfx: [['click', 1.9], ['flips', 2.1, 7, 0.05]] },
+    { name: 'Windows 11', short: '11', year: 2021.76, date: '5 октября 2021', accent: [120, 180, 255], monitor: 'lcd2', draw: mW11,
+      bullets: ['Панель задач по центру', 'Скруглённые углы и Snap Layouts', 'Требует TPM 2.0'],
+      memo: 'Строгие требования к железу',
+      sfx: [['click', 1.9], ['flips', 2.15, 12, 0.03]] }
+  ];
+  const vStart = i => V_T0 + i * V_DUR;
+
+  /* =====================================================================
+     SHARED PIECES: monitor, info card, timeline
+     ===================================================================== */
+  function monitor(style) {
+    const crt = style === 'crt' || style === 'crt2';
+    const bz = crt ? 26 : style === 'lcd' ? 16 : 10;
+    const col = style === 'crt' ? ['#d9d2bf', '#b8b09a'] : style === 'crt2' ? ['#cfd3da', '#a9aeb7'] : style === 'lcd' ? ['#1d1f24', '#0b0c0f'] : ['#2a2c31', '#17181b'];
+    const chin = crt ? 30 : bz;
+    // stand
+    const sg = ctx.createLinearGradient(0, SY + SH, 0, SY + SH + 120); sg.addColorStop(0, col[1]); sg.addColorStop(1, col[0]);
+    ctx.fillStyle = sg;
+    if (crt) { ctx.fillRect(SX + SW / 2 - 90, SY + SH + chin + bz - 4, 180, 30); rr(SX + SW / 2 - 170, SY + SH + chin + bz + 22, 340, 18, 9); ctx.fill(); }
+    else { ctx.fillRect(SX + SW / 2 - 22, SY + SH + chin, 44, 70); rr(SX + SW / 2 - 150, SY + SH + chin + 64, 300, 14, 7); ctx.fill(); }
+    const g = ctx.createLinearGradient(0, SY - bz, 0, SY + SH + chin);
+    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+    rr(SX - bz, SY - bz, SW + bz * 2, SH + bz + chin, crt ? 18 : 10); ctx.fillStyle = g; ctx.fill();
+    if (crt) { ctx.fillStyle = '#5fd35f'; ctx.fillRect(SX + SW - 30, SY + SH + 14, 10, 5); }
+  }
+
+  function infoCard(v, tau) {
+    const x = 1130, y = 140, w = 690, h = 640;
+    ga(eOut(prog(tau, 0.15, 0.55)));
+    rr(x, y, w, h, 18); ctx.fillStyle = 'rgba(14,16,24,0.88)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1.5; ctx.stroke();
+    const np = eOut(prog(tau, 0.2, 0.7));
+    ga(np); fitFont(v.name, 750, 74, SANS, w - 90);
+    ctx.save(); ctx.shadowColor = rgba(v.accent, 0.5); ctx.shadowBlur = 24;
+    ctx.fillStyle = rgba(v.accent, 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(v.name, x + 44, y + 104 + (1 - np) * 14); ctx.restore();
+    ga(eOut(prog(tau, 0.45, 0.85))); txt(v.date, x + 46, y + 150, `500 28px ${SANS}`, rgba(C.muted, 1));
+    ctx.fillStyle = rgba(v.accent, 0.4); ctx.fillRect(x + 46, y + 180, w - 92, 1.5);
+    ga(eOut(prog(tau, 0.9, 1.3))); setLS(5); txt('ЧТО НОВОГО', x + 46, y + 228, `700 20px ${SANS}`, rgba(v.accent, 1)); setLS(0);
+    v.bullets.forEach((b, k) => {
+      const p = eOut(prog(tau, BUL_AT[k], BUL_AT[k] + 0.45)); if (p <= 0) return;
+      ga(p); const by = y + 288 + k * 62;
+      ctx.fillStyle = rgba(v.accent, 1); ctx.fillRect(x + 48, by - 14, 10, 10);
+      fitFont(b, 500, 31, SANS, w - 130); ctx.fillStyle = rgba(C.ink, 0.95); ctx.textAlign = 'left'; ctx.fillText(b, x + 76 + (1 - p) * 20, by);
+    });
+    const mp = eOut(prog(tau, MEMO_AT, MEMO_AT + 0.5));
+    if (mp > 0) {
+      ga(mp); setLS(5); txt('ЗАПОМНИЛАСЬ', x + 46, y + 510, `700 20px ${SANS}`, rgba(C.warm, 1)); setLS(0);
+      ctx.font = `500 28px ${SANS}`; ctx.fillStyle = rgba(C.ink, 0.9);
+      wrap(v.memo, w - 92).slice(0, 2).forEach((ln, j) => ctx.fillText(ln, x + 46, y + 556 + j * 38 + (1 - mp) * 10));
+    }
+  }
+
+  const TL = { x0: 160, x1: 1760, y: 912, from: 1980, to: 2022 };
+  const yearX = yr => lerp(TL.x0, TL.x1, (yr - TL.from) / (TL.to - TL.from));
+  function timeline(t) {
+    const grow = eOut(prog(t, 3.0, 4.2));
+    if (grow <= 0) return;
+    const outro = prog(t, OUTRO_T0, OUTRO_T0 + 0.6);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(TL.x0, TL.y - 1, (TL.x1 - TL.x0) * grow, 2);
+    // decade labels (hidden in the outro, where version names take their place)
+    for (let yr = 1980; yr <= 2020; yr += 10) {
+      const x = yearX(yr); if (x > TL.x0 + (TL.x1 - TL.x0) * grow) continue;
+      ctx.globalAlpha = 1 - outro; ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(x - 1, TL.y + 6, 2, 10);
+      txt(String(yr), x, TL.y + 42, `500 20px ${SANS}`, rgba(C.muted, 1), 'center');
+    }
+    // playhead year
+    let cur = -1, head = TL.from;
+    if (t >= V_T0 - 0.3 && t < OUTRO_T0) {
+      cur = clamp(Math.floor((t - V_T0 + 0.3) / V_DUR), 0, VERSIONS.length - 1);
+      const prevYr = cur > 0 ? VERSIONS[cur - 1].year : TL.from;
+      head = lerp(prevYr, VERSIONS[cur].year, eInOut(prog(t - vStart(cur), -0.3, 0.6)));
+    } else if (t >= OUTRO_T0) head = lerp(TL.from, TL.to, eInOut(prog(t, OUTRO_T0, OUTRO_T0 + 2)));
+    if (t >= V_T0 - 0.3) {
+      const hx = yearX(head);
+      const pg = ctx.createLinearGradient(TL.x0, 0, hx, 0); pg.addColorStop(0, rgba(C.accent, 0.2)); pg.addColorStop(1, rgba(cur >= 0 ? VERSIONS[cur].accent : C.accent, 1));
+      ctx.globalAlpha = 1; ctx.fillStyle = pg; ctx.fillRect(TL.x0, TL.y - 1.5, hx - TL.x0, 3);
+    }
+    VERSIONS.forEach((v, i) => {
+      const x = yearX(v.year);
+      const ap = prog(t, 3.4 + i * 0.08, 3.7 + i * 0.08); if (ap <= 0) return;
+      const reached = t >= V_T0 - 0.3 && yearX(head) >= x - 0.5;
+      const active = i === cur;
+      ctx.globalAlpha = ap;
+      if (active) { glow(x, TL.y, 34, v.accent, 0.5); }
+      ctx.beginPath(); ctx.arc(x, TL.y, active ? 9 : 6, 0, 7);
+      if (reached) { ctx.fillStyle = rgba(v.accent, 1); ctx.fill(); }
+      else { ctx.fillStyle = '#0d0f15'; ctx.fill(); ctx.strokeStyle = rgba(v.accent, 0.6); ctx.lineWidth = 2; ctx.stroke(); }
+      if (active) txt(v.short, x, TL.y - 22, `700 20px ${SANS}`, rgba(v.accent, 1), 'center');
+      if (outro > 0) {
+        const lp = eOut(prog(t, OUTRO_T0 + 0.2 + i * 0.12, OUTRO_T0 + 0.6 + i * 0.12));
+        ctx.globalAlpha = lp; const up = i % 2 === 0;
+        txt(v.short, x, up ? TL.y - 24 : TL.y + 40, `700 20px ${SANS}`, rgba(v.accent, 1), 'center');
+      }
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  /* =====================================================================
+     SCENES
+     ===================================================================== */
+  function drawIntro(t) {
+    const out = eIn(prog(t, 5.2, 6.0));
+    ctx.translate(0, -out * 30);
+    // prompt typing "win"
+    const pp = 1 - prog(t, 1.7, 2.0);
+    if (pp > 0) {
+      ga(pp * prog(t, 0.2, 0.4));
+      const s = 'C:\\>' + typed(t, 0.6, 'win', 6);
+      txt(s, 760, 520, `400 56px ${MONO}`, '#c8c8c8');
+      if (blink(t) && t < 1.8) { ctx.fillStyle = '#c8c8c8'; ctx.fillRect(760 + ctx.measureText(s).width + 4, 528, 30, 6); }
+    }
+    if (t > 1.7 && t < 2.3) { ga(Math.sin(Math.PI * prog(t, 1.7, 2.3)) * 0.35); glow(960, 470, 700, [200, 225, 255], 1); }
+    const p1 = eOut(prog(t, 1.9, 2.6));
+    ga(p1 * (1 - out));
+    ctx.save(); ctx.shadowColor = rgba(C.accent, 0.5); ctx.shadowBlur = 34;
+    txt('Эволюция Windows', 960, 470 + (1 - p1) * 30, `750 124px ${SANS}`, rgba(C.ink, 1), 'center'); ctx.restore();
+    const p2 = eOut(prog(t, 2.5, 3.1));
+    ga(p2 * (1 - out)); txt('От MS-DOS до Windows 11 за 120 секунд', 960, 556 + (1 - p2) * 16, `500 42px ${SANS}`, rgba(C.muted, 1), 'center');
+  }
+
+  function drawVersion(v, i, t) {
+    const T = vStart(i), tau = t - T;
+    const slide = (1 - eOut(prog(tau, -0.3, 0.45))) * 120 - eIn(prog(tau, 7.55, 8.15)) * 120;
+    ctx.translate(slide, 0);
+    ga(eOut(prog(tau, -0.2, 0.4)));
+    setLS(5); txt(`${String(i + 1).padStart(2, '0')} / ${VERSIONS.length}  ·  ${Math.floor(v.year)}`, SX - 20, 100, `600 22px ${SANS}`, rgba(C.muted, 1)); setLS(0);
+    ga(1); monitor(v.monitor);
+    // screen content with a power-on effect (CRT collapse line, LCD fade)
+    ctx.save();
+    ctx.beginPath(); ctx.rect(SX, SY, SW, SH); ctx.clip();
+    ctx.fillStyle = '#000'; ctx.fillRect(SX, SY, SW, SH);
+    const crt = v.monitor.startsWith('crt');
+    const on = crt ? eOut(prog(tau, 0.05, 0.35)) : 1;
+    ctx.translate(SX, SY + SH / 2); ctx.scale(1, Math.max(0.004, on)); ctx.translate(0, -SH / 2);
+    v.draw(tau);
+    ctx.restore();
+    if (crt && tau < 0.45) { ga(1 - prog(tau, 0.2, 0.45)); ctx.fillStyle = '#fff'; ctx.fillRect(SX, SY + SH / 2 - 2, SW, 4); }
+    if (!crt) { ga(1 - prog(tau, 0.05, 0.45)); ctx.fillStyle = '#000'; ctx.fillRect(SX, SY, SW, SH); }
+    // glass reflection
+    ga(1); const rg = ctx.createLinearGradient(SX, SY, SX + SW * 0.6, SY + SH);
+    rg.addColorStop(0, 'rgba(255,255,255,0.07)'); rg.addColorStop(0.4, 'rgba(255,255,255,0)'); ctx.fillStyle = rg; ctx.fillRect(SX, SY, SW, SH);
+    infoCard(v, tau);
+  }
+
+  function drawOutro(t) {
+    ctx.textAlign = 'center';
+    const p1 = eOut(prog(t, 110.4, 111.1));
+    ga(p1); ctx.save(); ctx.shadowColor = rgba(C.accent, 0.5); ctx.shadowBlur = 34;
+    txt('Сорок лет эволюции', 960, 400 + (1 - p1) * 24, `750 104px ${SANS}`, rgba(C.ink, 1), 'center'); ctx.restore();
+    const p2 = eOut(prog(t, 111.0, 111.6));
+    ga(p2); txt('От C:\\> до Windows 11', 960, 486 + (1 - p2) * 16, `500 48px ${SANS}`, rgba(C.warm, 1), 'center');
+    const p3 = eOut(prog(t, 112.6, 113.2));
+    ga(p3 * 0.8); txt('Неофициальный исторический обзор. MS-DOS и Windows являются товарными знаками Microsoft.', 960, 600, `400 22px ${SANS}`, rgba(C.muted, 1), 'center');
+    if (t >= 111.0) { const f = 1 - prog(t, 111.0, 111.7); ga(0.3 * f * f); glow(960, 440, 900, [214, 232, 255], 1); }
+  }
+
+  /* =====================================================================
+     FRAME RENDERER
+     ===================================================================== */
+  const DUST = Array.from({ length: 50 }, () => ({ x: rng() * W, y: rng() * H, r: .6 + rng() * 1.6, s: 4 + rng() * 12, ph: rng() * 6.28, a: .08 + rng() * .22 }));
+  const grain = document.createElement('canvas'); grain.width = grain.height = 220;
+  { const g = grain.getContext('2d'), img = g.createImageData(220, 220); for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; } g.putImageData(img, 0, 0); }
+  const grainPattern = ctx.createPattern(grain, 'repeat');
+
+  function sceneTint(t) {
+    let c = C.accent;
+    VERSIONS.forEach((v, i) => { c = mix(c, v.accent, prog(t, vStart(i) - 0.4, vStart(i) + 0.4)); });
+    return mix(c, C.accent, prog(t, OUTRO_T0 - 0.3, OUTRO_T0 + 0.5));
+  }
+  function render(t) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
+    const tint = sceneTint(t);
+    const bg = ctx.createRadialGradient(600, 420, 0, 600, 420, 1100);
+    bg.addColorStop(0, rgba(tint, 0.13)); bg.addColorStop(0.55, rgba(tint, 0.04)); bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    for (const d of DUST) {
+      const y = ((d.y - t * d.s) % H + H) % H, x = d.x + Math.sin(t * 0.3 + d.ph) * 12;
+      ctx.globalAlpha = d.a * (0.6 + 0.4 * Math.sin(t * 1.3 + d.ph)); ctx.fillStyle = rgba(tint, 1); ctx.beginPath(); ctx.arc(x, y, d.r, 0, 7); ctx.fill();
+    }
+    const ia = 1 - prog(t, 5.5, 6.1);
+    if (ia > 0) { A = ia; ctx.save(); drawIntro(t); ctx.restore(); }
+    VERSIONS.forEach((v, i) => {
+      const tau = t - vStart(i);
+      if (tau < -0.3 || tau > 8.15) return;
+      A = Math.min(prog(tau, -0.3, 0.35), 1 - prog(tau, 7.55, 8.15));
+      if (A <= 0.001) return;
+      ctx.save(); v.draw && drawVersion(v, i, t); ctx.restore();
+    });
+    const oa = prog(t, OUTRO_T0 - 0.1, OUTRO_T0 + 0.4);
+    if (oa > 0) { A = oa; ctx.save(); drawOutro(t); ctx.restore(); }
+    A = 1; ctx.globalAlpha = 1; ctx.shadowBlur = 0; setLS(0);
+    timeline(t);
+    const vg = ctx.createRadialGradient(960, 540, 460, 960, 540, 1180);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.62)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    const gx = reduceMotion ? 0 : Math.random() * 220, gy = reduceMotion ? 0 : Math.random() * 220;
+    ctx.translate(-gx, -gy); ctx.globalAlpha = 0.03; ctx.fillStyle = grainPattern; ctx.fillRect(0, 0, W + 220, H + 220);
+    ctx.restore();
+    const fade = Math.max(1 - prog(t, 0, 0.3), prog(t, 119, 120));
+    if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  }
+
+  /* =====================================================================
+     AUDIO (Web Audio API only, all synthesized; no recorded or imitated
+     startup sounds). Events are built once from the same timings the
+     visuals use and fed to the audio clock by a look-ahead scheduler.
+     ===================================================================== */
+  let actx = null, master = null, noiseBuf = null, bus = null;
+  const vol = { level: 0.8, muted: false };
+  const effVol = () => (vol.muted ? 0 : vol.level * vol.level);
+  function initAudio() {
+    if (actx) return;
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    actx = new AC();
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+    master = actx.createGain(); master.gain.value = effVol(); master.connect(comp); comp.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  function makeBuses() {
+    const run = actx.createGain(); run.connect(master);
+    const music = actx.createGain(); music.gain.value = 0.9; music.connect(run);
+    const sfx = actx.createGain(); sfx.connect(run);
+    return { run, music, sfx };
+  }
+  const gainTo = (dest, v = 0) => { const g = actx.createGain(); g.gain.value = v; g.connect(dest); return g; };
+  const osc = (type, freq, at, stop) => { const o = actx.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, at); o.start(at); o.stop(stop); return o; };
+  const noise = (at, stop) => { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(at, Math.random() * 1.5); s.stop(stop); return s; };
+  const filt = (type, freq, q = 1) => { const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; return f; };
+  function perc(g, at, peak, attack, decay) { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + attack); g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay); }
+
+  function ambient(at, dur) {
+    const end = at + dur, g = gainTo(bus.music);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.04, at + 2); g.gain.setValueAtTime(0.04, end - 1.5); g.gain.linearRampToValueAtTime(0, end);
+    const f = filt('lowpass', 460, 1.1); f.connect(g);
+    const lfo = osc('sine', 0.06, at, end), amt = actx.createGain(); amt.gain.value = 200; lfo.connect(amt); amt.connect(f.frequency);
+    [65.41, 98, 130.81].forEach(fr => [-7, 7].forEach(det => { const o = osc('sawtooth', fr, at, end); o.detune.value = det; o.connect(f); }));
+  }
+  function tick(at) { const g = gainTo(bus.sfx); perc(g, at, 0.05 + Math.random() * 0.025, 0.002, 0.03); const f = filt('bandpass', 2600 + Math.random() * 1800, 2.2); f.connect(g); noise(at, at + 0.05).connect(f); }
+  function click(at) {
+    const g = gainTo(bus.sfx); perc(g, at, 0.12, 0.001, 0.025); const f = filt('bandpass', 2200, 1.5); f.connect(g); noise(at, at + 0.04).connect(f);
+    const g2 = gainTo(bus.sfx); perc(g2, at, 0.06, 0.002, 0.06); osc('sine', 190, at, at + 0.1).connect(g2);
+  }
+  function disk(at) { for (let k = 0; k < 7; k++) { const t0 = at + k * 0.07 + Math.random() * 0.02; const g = gainTo(bus.sfx); perc(g, t0, 0.07, 0.001, 0.03); const f = filt('bandpass', 900 + Math.random() * 600, 3); f.connect(g); noise(t0, t0 + 0.05).connect(f); } }
+  function whoosh(at, dur) {
+    const g = gainTo(bus.sfx); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.13, at + dur * 0.55); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('bandpass', 300, 0.9); f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(2400, at + dur * 0.55); f.frequency.exponentialRampToValueAtTime(500, at + dur);
+    let out = g; if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.setValueAtTime(0.7, at); p.pan.linearRampToValueAtTime(-0.5, at + dur); p.connect(g); out = p; }
+    f.connect(out); noise(at, at + dur + 0.05).connect(f);
+  }
+  function pluck(at, freq, level = 0.05, type = 'triangle') { const g = gainTo(bus.sfx); perc(g, at, level, 0.004, 0.35); osc(type, freq, at, at + 0.45).connect(g); }
+  function uacTone(at) { [523.25, 392].forEach((f, k) => { const g = gainTo(bus.sfx); perc(g, at + k * 0.16, 0.09, 0.01, 0.5); osc('triangle', f, at + k * 0.16, at + k * 0.16 + 0.6).connect(g); }); }
+  function snap(at) { whoosh(at - 0.18, 0.28); click(at); }
+  // Era-flavoured boot arpeggio: square for the early years, triangle for the 90s, sine pads later.
+  const CHIMES = [[523.25, 659.25, 783.99, 1046.5], [392, 493.88, 587.33, 783.99], [440, 523.25, 659.25, 880], [349.23, 440, 523.25, 698.46]];
+  function boot(i, at) {
+    if (i === 0) { const g = gainTo(bus.sfx); perc(g, at, 0.05, 0.002, 0.14); const f = filt('lowpass', 3000); f.connect(g); osc('square', 1046.5, at, at + 0.2).connect(f); disk(at + 0.3); return; }
+    const notes = CHIMES[i % 4], wave = i <= 3 ? 'square' : i <= 6 ? 'triangle' : 'sine';
+    notes.forEach((fr, k) => {
+      const t0 = at + k * 0.085, g = gainTo(bus.sfx); perc(g, t0, wave === 'square' ? 0.035 : wave === 'triangle' ? 0.06 : 0.07, 0.006, 1.1);
+      const f = filt('lowpass', wave === 'square' ? 1800 : 5000); f.connect(g); osc(wave, fr, t0, t0 + 1.3).connect(f);
+    });
+    if (i >= 7) {
+      const g = gainTo(bus.music); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.05, at + 0.5); g.gain.linearRampToValueAtTime(0, at + 2);
+      notes.slice(0, 3).forEach(fr => [-8, 8].forEach(det => { const o = osc('sine', fr / 2, at, at + 2.1); o.detune.value = det; o.connect(g); }));
+    }
+  }
+  function kick(at) { const g = gainTo(bus.music); perc(g, at, 0.24, 0.003, 0.3); const o = osc('sine', 120, at, at + 0.4); o.frequency.exponentialRampToValueAtTime(42, at + 0.15); o.connect(g); }
+  function hat(at) { const g = gainTo(bus.music); perc(g, at, 0.015, 0.002, 0.045); const f = filt('highpass', 7000, 0.7); f.connect(g); noise(at, at + 0.07).connect(f); }
+  function chord(at, dur, freqs) {
+    const g = gainTo(bus.music); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.04, at + 0.4); g.gain.setValueAtTime(0.04, at + dur - 0.5); g.gain.linearRampToValueAtTime(0, at + dur);
+    const f = filt('lowpass', 900, 0.6); f.connect(g);
+    freqs.forEach(fr => [-6, 6].forEach(det => { const o = osc('triangle', fr, at, at + dur + 0.05); o.detune.value = det; o.connect(f); }));
+    const b = gainTo(bus.music); b.gain.setValueAtTime(0, at); b.gain.linearRampToValueAtTime(0.08, at + 0.2); b.gain.setValueAtTime(0.08, at + dur - 0.4); b.gain.linearRampToValueAtTime(0, at + dur);
+    osc('sine', freqs[0] / 2, at, at + dur + 0.05).connect(b);
+  }
+  function swell(at, dur) {
+    const g = gainTo(bus.music); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.12, at + dur); g.gain.linearRampToValueAtTime(0, at + dur + 0.06);
+    const f = filt('lowpass', 200, 3); f.frequency.setValueAtTime(200, at); f.frequency.exponentialRampToValueAtTime(3600, at + dur); f.connect(g);
+    [130.81, 196, 261.63].forEach(fr => { const o = osc('sawtooth', fr, at, at + dur + 0.1); o.frequency.exponentialRampToValueAtTime(fr * 1.335, at + dur); o.connect(f); });
+  }
+  function hit(at) {
+    const kg = gainTo(bus.sfx); perc(kg, at, 0.85, 0.003, 0.6); const k = osc('sine', 140, at, at + 0.8); k.frequency.exponentialRampToValueAtTime(38, at + 0.35); k.connect(kg);
+    const ng = gainTo(bus.sfx); perc(ng, at, 0.2, 0.003, 0.9); const nf = filt('lowpass', 3000, 0.7); nf.frequency.setValueAtTime(3000, at); nf.frequency.exponentialRampToValueAtTime(250, at + 0.8); nf.connect(ng); noise(at, at + 1).connect(nf);
+    const sg = gainTo(bus.sfx); perc(sg, at, 0.1, 0.01, 2.2); [261.63, 329.63, 392, 523.25].forEach(fr => osc('triangle', fr, at, at + 2.4).connect(sg));
+  }
+
+  const PROG = [[261.63, 329.63, 392], [196, 246.94, 293.66], [220, 261.63, 329.63], [174.61, 220, 261.63]]; // C G Am F
+  const EVENTS = [];
+  const ev = (t, play) => EVENTS.push({ t, play });
+  ev(0.6, at => { for (let k = 0; k < 3; k++) tick(at + k / 6); });
+  ev(1.8, at => swell(at, 0.3));
+  ev(1.95, at => boot(4, at));
+  VERSIONS.forEach((_, k) => ev(3.4 + k * 0.08, at => pluck(at, 523.25 * Math.pow(2, k / 12), 0.03)));
+  for (let t = V_T0, k = 0; t < OUTRO_T0; t += 4, k++) { const fr = PROG[k % 4]; ev(t, at => chord(at, 4.3, fr)); }
+  for (let t = V_T0; t < OUTRO_T0; t += 1) { ev(t, at => kick(at)); ev(t + 0.5, at => hat(at)); }
+  VERSIONS.forEach((v, i) => {
+    const T = vStart(i);
+    ev(T - 0.3, at => whoosh(at, 0.6));
+    ev(T + 0.15, at => boot(i, at));
+    BUL_AT.forEach((s, k) => ev(T + s, at => pluck(at, 880 + k * 110, 0.04, 'sine')));
+    ev(T + MEMO_AT, at => pluck(at, 659.25, 0.04, 'sine'));
+    v.sfx.forEach(([kind, s, n, step]) => {
+      if (kind === 'type') for (let c = 0; c < n; c += 1) ev(T + s + c / step, at => tick(at));
+      else if (kind === 'flips') for (let c = 0; c < n; c++) ev(T + s + c * step, at => tick(at));
+      else if (kind === 'click') ev(T + s, at => click(at));
+      else if (kind === 'disk') ev(T + s, at => disk(at));
+      else if (kind === 'uac') ev(T + s, at => uacTone(at));
+      else if (kind === 'snap') ev(T + s, at => snap(at));
+    });
+  });
+  VERSIONS.forEach((_, k) => ev(OUTRO_T0 + 0.2 + k * 0.12, at => pluck(at, 523.25 * Math.pow(2, k / 12), 0.03)));
+  ev(109.6, at => swell(at, 1.4));
+  ev(111.0, at => hit(at));
+  EVENTS.sort((a, b) => a.t - b.t);
+
+  /* =====================================================================
+     MASTER TIMELINE
+     ===================================================================== */
+  const state = { running: false, t0: 0, perf0: 0, next: 0 };
+  const clock = () => (actx ? actx.currentTime - state.t0 : (performance.now() - state.perf0) / 1000);
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  function scheduleAudio(t) {
+    if (!actx) return;
+    while (state.next < EVENTS.length && EVENTS[state.next].t < t + 0.25) {
+      const e = EVENTS[state.next++];
+      if (e.t >= t - 0.05) e.play(state.t0 + e.t);
+    }
+  }
+  function updateHUD(t) {
+    barEl.style.width = (t / DURATION * 100) + '%';
+    timerEl.textContent = `${fmt(Math.min(t, DURATION))} / ${fmt(DURATION)}`;
+    trackEl.setAttribute('aria-valuenow', Math.floor(t));
+  }
+  function start() {
+    if (state.running) return;
+    state.running = true; overlay.hidden = true;
+    initAudio(); state.next = 0;
+    if (actx) {
+      if (actx.state === 'suspended') actx.resume();
+      if (bus) { const old = bus.run; old.gain.cancelScheduledValues(actx.currentTime); old.gain.setValueAtTime(0, actx.currentTime); setTimeout(() => old.disconnect(), 200); }
+      bus = makeBuses();
+      state.t0 = actx.currentTime + 0.15;
+      ambient(state.t0, DURATION);
+      bus.run.gain.setValueAtTime(1, state.t0 + 119); bus.run.gain.linearRampToValueAtTime(0.0001, state.t0 + DURATION);
+    } else state.perf0 = performance.now() + 150;
+    requestAnimationFrame(frame);
+  }
+  function frame() {
+    const t = clock(), tc = clamp(t, 0, DURATION);
+    scheduleAudio(t); render(tc); updateHUD(tc);
+    if (t >= DURATION) { finish(); return; }
+    requestAnimationFrame(frame);
+  }
+  function finish() {
+    state.running = false; posterT = 114; render(posterT);
+    playLabel.textContent = 'Ещё раз';
+    $('playIcon').toggleAttribute('hidden', true); $('replayIcon').toggleAttribute('hidden', false);
+    $('hint').textContent = 'Посмотреть снова';
+    overlay.hidden = false; playBtn.focus({ preventScroll: true });
+  }
+
+  /* =====================================================================
+     CONTROLS
+     ===================================================================== */
+  function applyVolume() {
+    if (actx && master) master.gain.setTargetAtTime(effVol(), actx.currentTime, 0.03);
+    muteBtn.setAttribute('aria-pressed', String(vol.muted));
+    muteBtn.setAttribute('aria-label', vol.muted ? 'Включить звук' : 'Выключить звук');
+    $('waves').toggleAttribute('hidden', vol.muted); $('cross').toggleAttribute('hidden', !vol.muted);
+  }
+  playBtn.addEventListener('click', start);
+  muteBtn.addEventListener('click', () => { vol.muted = !vol.muted; applyVolume(); });
+  volEl.addEventListener('input', () => { vol.level = parseFloat(volEl.value); if (vol.muted && vol.level > 0) vol.muted = false; applyVolume(); });
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', fit);
+  fit();
+  playBtn.focus({ preventScroll: true });
+})();
+</script>
+
+</body>
+</html>
