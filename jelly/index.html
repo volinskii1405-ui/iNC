@@ -87,9 +87,10 @@
   #hints b { color: #ffd4e5; font-weight: 650; }
   #hints .keys { display: block; margin-top: 3px; opacity: 0.7; font-size: 11.5px; }
   #modeBadge {
-    position: fixed; top: 14px; right: 14px; z-index: 4; padding: 8px 14px; border-radius: 14px;
+    position: fixed; top: 14px; right: 14px; z-index: 4; padding: 9px 15px; border-radius: 14px;
     background: var(--panel); border: 1px solid var(--panel-border); box-shadow: var(--shadow);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-weight: 700; pointer-events: none;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font: inherit; font-weight: 700;
+    color: var(--text); cursor: pointer;
   }
   #modeBadge.cut { color: #fff; background: linear-gradient(135deg, #ff4f8b, #ff7a59); border-color: transparent; }
   #toast {
@@ -108,7 +109,8 @@
   @media (max-width: 720px) {
     #panel { width: calc(100% - 24px); max-height: 58%; }
     #hints { font-size: 11.5px; bottom: 8px; }
-    #modeBadge { top: auto; bottom: 86px; right: 12px; }
+    #modeBadge { top: auto; bottom: 96px; right: 12px; padding: 12px 16px; }
+    #hints { bottom: 8px; left: 12px; right: 12px; transform: none; max-width: none; }
   }
 </style>
 </head>
@@ -140,8 +142,8 @@
         <button class="btn primary" id="addBtn">＋ Добавить</button>
       </div>
       <div class="row">
-        <button class="btn" id="resetSceneBtn">↺ Сбросить сцену</button>
-        <button class="btn" id="resetCamBtn">🎥 Сбросить камеру</button>
+        <button class="btn" id="resetSceneBtn" title="Сбросить сцену (R)">↺ Сброс сцены</button>
+        <button class="btn" id="resetCamBtn" title="Сбросить камеру (C)">🎥 Сброс камеры</button>
       </div>
     </div>
     <div class="section">
@@ -154,7 +156,7 @@
     <div class="stats" id="stats">…</div>
   </div>
 </div>
-<div id="modeBadge">✋ Тянуть</div>
+<button id="modeBadge" title="Переключить режим (1 / 2)">✋ Тянуть</button>
 <div id="hints"></div>
 <div id="toast"></div>
 <div id="loading"><div><div class="big">🍮</div><div id="loadingText">Загружаем желе…</div></div></div>
@@ -192,6 +194,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 const DENSITY = 1.0;            // плотность желе (масса = плотность × объём)
 const MAX_SPEED = 25;           // предел скорости частицы, м/с (защита от «взрывов»)
+const GRAB_MAX_SPEED = 8;       // предел скорости точки захвата, м/с
 const COLLISION_REFRESH = 3;    // пары столкновений пересобираются раз в N подшагов
 const ROLL_RESISTANCE = 2.5;    // 1/с, гашение вращения при контакте с полом
 const RIGID_DAMPING = 0.3;      // 1/с, слабое глобальное гашение отклонений от твёрдого движения
@@ -259,18 +262,18 @@ function bearSDF(x, y, z) {                        // мармеладный м�
 
 // h — шаг решётки тетраэдризации, extent — полуразмеры ограничивающего бокса
 const SHAPES = {
-  cube:     { label: 'Куб',     color: '#ff2d55', h: 1 / 7, extent: [0.5, 0.5, 0.5], gridAligned: true,
+  cube:     { label: 'Куб',     color: '#ff2d55', h: 1 / 6, extent: [0.5, 0.5, 0.5], gridAligned: true,
               sdf: (x, y, z) => SDF.box(x, y, z, 0.5, 0.5, 0.5) },
-  sphere:   { label: 'Шар',     color: '#ff9500', h: 0.15, extent: [0.6, 0.6, 0.6],
+  sphere:   { label: 'Шар',     color: '#ff9500', h: 0.165, extent: [0.6, 0.6, 0.6],
               sdf: (x, y, z) => SDF.sphere(x, y, z, 0.6) },
-  cylinder: { label: 'Цилиндр', color: '#1fc75a', h: 0.14, extent: [0.45, 0.55, 0.45],
+  cylinder: { label: 'Цилиндр', color: '#1fc75a', h: 0.155, extent: [0.45, 0.55, 0.45],
               sdf: (x, y, z) => SDF.roundCylinder(x, y, z, 0.45, 0.55, 0.08) },
-  torus:    { label: 'Тор',     color: '#2f6bff', h: 0.115, extent: [0.8, 0.24, 0.8],
+  torus:    { label: 'Тор',     color: '#2f6bff', h: 0.13, extent: [0.8, 0.24, 0.8],
               sdf: (x, y, z) => SDF.torus(x, y, z, 0.56, 0.24) },
-  pudding:  { label: 'Пудинг',  color: '#ffb81a', h: 0.14, extent: [0.62, 0.38, 0.62],
+  pudding:  { label: 'Пудинг',  color: '#ffb81a', h: 0.15, extent: [0.62, 0.38, 0.62],
               sdf: (x, y, z) => SDF.cappedCone(x, y, z, 0.28, 0.52, 0.32) - 0.1 },
-  heart:    { label: 'Сердце',  color: '#ff3fa4', h: 0.12, extent: [0.62, 0.56, 0.28], sdf: heartSDF },
-  bear:     { label: 'Мишка',   color: '#9b4dff', h: 0.095, extent: [0.47, 0.75, 0.34], sdf: bearSDF },
+  heart:    { label: 'Сердце',  color: '#ff3fa4', h: 0.13, extent: [0.62, 0.56, 0.28], sdf: heartSDF },
+  bear:     { label: 'Мишка',   color: '#9b4dff', h: 0.105, extent: [0.47, 0.75, 0.34], sdf: bearSDF },
 };
 
 const PALETTE = ['#ff2d55', '#ff9500', '#1fc75a', '#2f6bff', '#ffb81a', '#ff3fa4', '#9b4dff',
@@ -298,9 +301,12 @@ function tetVol6(X, a, b, c, d) {
 //     желе ведёт себя одинаково по всем осям.
 //  2) Берём тетраэдры, центр которых внутри фигуры (SDF < 0), оставляем
 //     крупнейшую компоненту связности по граням.
-//  3) Граничные вершины проецируем на поверхность итерациями Ньютона.
-//     Если проекция портит тетраэдр (объём падает/выворачивается),
-//     сдвиг этих вершин уменьшается — гарантия отсутствия вырожденных элементов.
+//  3) Граничные вершины проецируем на поверхность итерациями Ньютона, затем
+//     несколько итераций сглаживания: граница — касательный Лаплас с повторной
+//     проекцией (ровные треугольники, нет «бугров»), внутренние вершины —
+//     обычный Лаплас (освобождают место у поверхности). Если тетраэдр всё же
+//     сплющен/вывернут, его вершины частично возвращаются к решётке —
+//     гарантия отсутствия вырожденных элементов.
 // ============================================================================
 function buildTetMesh(shape) {
   const h = shape.h, sdf = shape.sdf, ext = shape.extent;
@@ -370,24 +376,23 @@ function buildTetMesh(shape) {
       tetArr.push(remap[g]);
     }
   }
-  const pos = Float64Array.from(posArr);
-  const tets = Int32Array.from(tetArr);
-  const nv = pos.length / 3, m = tets.length / 4;
+  let pos = Float64Array.from(posArr);
+  let tets = Int32Array.from(tetArr);
+  let nv = pos.length / 3, m = tets.length / 4;
   for (let t = 0; t < m; t++) {                     // положительная ориентация
     if (tetVol6(pos, tets[4 * t], tets[4 * t + 1], tets[4 * t + 2], tets[4 * t + 3]) < 0) {
       const tmp = tets[4 * t + 2]; tets[4 * t + 2] = tets[4 * t + 3]; tets[4 * t + 3] = tmp;
     }
   }
 
-  // --- проекция граничных вершин на поверхность
+  // --- проекция граничных вершин на поверхность и сглаживание сетки
   const boundary = new Uint8Array(nv);
   const surf = extractSurface(tets, nv);
   for (let k = 0; k < surf.length; k++) boundary[surf[k]] = 1;
-  const orig = Float64Array.from(pos), target = Float64Array.from(pos);
+  const orig = Float64Array.from(pos);
   const e = 1e-4;
-  for (let v = 0; v < nv; v++) {
-    if (!boundary[v]) continue;
-    let x = pos[3 * v], y = pos[3 * v + 1], z = pos[3 * v + 2];
+  const project = (P, v) => {                        // итерации Ньютона: x ← x − f·∇f/|∇f|²
+    let x = P[3 * v], y = P[3 * v + 1], z = P[3 * v + 2];
     for (let it = 0; it < 6; it++) {
       const f = sdf(x, y, z);
       if (Math.abs(f) < 1e-6) break;
@@ -401,13 +406,51 @@ function buildTetMesh(shape) {
     let dx = x - orig[3 * v], dy = y - orig[3 * v + 1], dz = z - orig[3 * v + 2];
     const dl = Math.sqrt(dx * dx + dy * dy + dz * dz), maxD = 1.2 * h;
     if (dl > maxD) { dx *= maxD / dl; dy *= maxD / dl; dz *= maxD / dl; }
-    target[3 * v] = orig[3 * v] + dx; target[3 * v + 1] = orig[3 * v + 1] + dy; target[3 * v + 2] = orig[3 * v + 2] + dz;
+    P[3 * v] = orig[3 * v] + dx; P[3 * v + 1] = orig[3 * v + 1] + dy; P[3 * v + 2] = orig[3 * v + 2] + dz;
+  };
+  if (!shape.gridAligned) {
+    // соседи: по рёбрам тетраэдров (для внутренних) и по рёбрам поверхности (для граничных)
+    const nb = Array.from({ length: nv }, () => new Set()), snb = Array.from({ length: nv }, () => new Set());
+    const PAIRS = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+    for (let t = 0; t < m; t++) for (const [p, q] of PAIRS) { nb[tets[4 * t + p]].add(tets[4 * t + q]); nb[tets[4 * t + q]].add(tets[4 * t + p]); }
+    for (let k = 0; k < surf.length; k += 3) {
+      for (let q = 0; q < 3; q++) { const a = surf[k + q], c = surf[k + (q + 1) % 3]; snb[a].add(c); snb[c].add(a); }
+    }
+    for (let v = 0; v < nv; v++) if (boundary[v]) project(pos, v);
+    // касательное сглаживание границы (с повторной проекцией) + лапласово сглаживание
+    // внутренних вершин: выравнивает треугольники поверхности и убирает «бугры»
+    const next = new Float64Array(pos.length);
+    for (let it = 0; it < 8; it++) {
+      next.set(pos);
+      for (let v = 0; v < nv; v++) {
+        const set = boundary[v] ? snb[v] : nb[v];
+        let ax = 0, ay = 0, az = 0;
+        for (const u of set) { ax += pos[3 * u]; ay += pos[3 * u + 1]; az += pos[3 * u + 2]; }
+        const k = 0.5 / set.size;
+        next[3 * v] = 0.5 * pos[3 * v] + ax * k; next[3 * v + 1] = 0.5 * pos[3 * v + 1] + ay * k; next[3 * v + 2] = 0.5 * pos[3 * v + 2] + az * k;
+        if (boundary[v]) project(next, v);
+      }
+      pos.set(next);
+    }
   }
+  const minVol6 = 0.06 * h * h * h;                  // угловой тетраэдр решётки: vol6 = h³
+  // «плоские» тетраэдры, все 4 вершины которых легли на поверхность, удаляем:
+  // поверхность под ними почти та же, а такой элемент почти не сопротивляется
+  // сплющиванию и при ударе легко выворачивается
+  let mm = 0;
+  for (let t = 0; t < m; t++) {
+    const a = tets[4 * t], b = tets[4 * t + 1], c = tets[4 * t + 2], d = tets[4 * t + 3];
+    if (boundary[a] && boundary[b] && boundary[c] && boundary[d] && tetVol6(pos, a, b, c, d) < 0.25 * h * h * h) continue;
+    tets.copyWithin(4 * mm, 4 * t, 4 * t + 4);
+    mm++;
+  }
+  m = mm;
+  // страховка качества: если тетраэдр сплющен/вывернут, его вершины частично
+  // возвращаются к исходной (заведомо корректной) решётке
+  const target = Float64Array.from(pos);
   const sFac = new Float64Array(nv).fill(1);
-  const minVol6 = 0.22 * h * h * h;                  // угловой тетраэдр: V = h³/6 → vol6 = h³
   const apply = () => {
     for (let v = 0; v < nv; v++) {
-      if (!boundary[v]) continue;
       for (let a = 0; a < 3; a++) pos[3 * v + a] = orig[3 * v + a] + sFac[v] * (target[3 * v + a] - orig[3 * v + a]);
     }
   };
@@ -417,12 +460,20 @@ function buildTetMesh(shape) {
     for (let t = 0; t < m; t++) {
       if (tetVol6(pos, tets[4 * t], tets[4 * t + 1], tets[4 * t + 2], tets[4 * t + 3]) < minVol6) {
         bad++;
-        for (let q = 0; q < 4; q++) { const v = tets[4 * t + q]; if (boundary[v]) sFac[v] *= iter < 12 ? 0.6 : 0; }
+        for (let q = 0; q < 4; q++) sFac[tets[4 * t + q]] *= iter < 12 ? 0.7 : 0;
       }
     }
     if (!bad) break;
   }
   apply();
+  // компактная нумерация после удаления тетраэдров
+  tets = tets.slice(0, 4 * m);
+  const used = new Int32Array(nv).fill(-1);
+  let nu = 0;
+  for (let k = 0; k < tets.length; k++) { const v = tets[k]; if (used[v] < 0) used[v] = nu++; tets[k] = used[v]; }
+  const packed = new Float64Array(3 * nu);
+  for (let v = 0; v < nv; v++) if (used[v] >= 0) packed.set(pos.subarray(3 * v, 3 * v + 3), 3 * used[v]);
+  pos = packed; nv = nu;
 
   // центрируем (центр масс вершин в начале координат)
   let cx = 0, cy = 0, cz = 0;
@@ -633,30 +684,36 @@ class SoftBody {
     this.contacts = contacts;
   }
 
-  // v = (x − x_prev)/h, ограничение скорости и демпфирование.
-  // Основное затухание — вязкость Рэлея в рёбрах (см. solveEdges). Здесь —
-  // слабое демпфирование, «сохраняющее твёрдое движение» (Müller et al. 2007):
-  // гасится только отклонение скоростей от поступательно-вращательного
-  // движения тела, поэтому полёт и кувырки не тормозятся.
-  // roll — сопротивление качению: при контакте с полом гасим вращение тела
-  // (вязкие потери в пятне контакта), иначе шар катался бы вечно.
-  updateVelocities(h, damp, roll) {
-    const n = this.n, x = this.pos, p = this.prev, v = this.vel, m = this.mass;
+  // v = (x − x_prev)/h и ограничение скорости (защита от «взрывов»).
+  updateVelocities(h) {
+    const x = this.pos, p = this.prev, v = this.vel;
     const ih = 1 / h, vmax2 = MAX_SPEED * MAX_SPEED;
-    let M = 0, cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0, smax = 0;
-    for (let i = 0, j = 0; i < n; i++, j += 3) {
+    let smax = 0;
+    for (let j = 0, N = 3 * this.n; j < N; j += 3) {
       let ux = (x[j] - p[j]) * ih, uy = (x[j + 1] - p[j + 1]) * ih, uz = (x[j + 2] - p[j + 2]) * ih;
       let s2 = ux * ux + uy * uy + uz * uz;
       if (s2 > vmax2) { const k = MAX_SPEED / Math.sqrt(s2); ux *= k; uy *= k; uz *= k; s2 = vmax2; }
       if (s2 > smax) smax = s2;
       v[j] = ux; v[j + 1] = uy; v[j + 2] = uz;
-      const mi = m[i];
-      M += mi; cx += mi * x[j]; cy += mi * x[j + 1]; cz += mi * x[j + 2];
-      vx += mi * ux; vy += mi * uy; vz += mi * uz;
     }
     this.maxSpeed = Math.sqrt(smax);
+  }
+
+  // Раз в кадр. Основное затухание — вязкость Рэлея в рёбрах (solveEdges).
+  // Здесь — слабое демпфирование, «сохраняющее твёрдое движение» (Müller et al.
+  // 2007): гасится только отклонение скоростей от поступательно-вращательного
+  // движения тела, поэтому полёт и кувырки не тормозятся.
+  // roll — сопротивление качению: при контакте с полом гасим вращение тела
+  // (вязкие потери в пятне контакта), иначе шар катался бы вечно.
+  dampRigid(damp, roll) {
+    const n = this.n, x = this.pos, v = this.vel, m = this.mass;
     if (!(this.contacts > 0)) roll = 0;
-    if (damp <= 0 && roll <= 0) return;
+    let M = 0, cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0;
+    for (let i = 0, j = 0; i < n; i++, j += 3) {
+      const mi = m[i];
+      M += mi; cx += mi * x[j]; cy += mi * x[j + 1]; cz += mi * x[j + 2];
+      vx += mi * v[j]; vy += mi * v[j + 1]; vz += mi * v[j + 2];
+    }
     cx /= M; cy /= M; cz /= M; vx /= M; vy /= M; vz /= M;
     let Lx = 0, Ly = 0, Lz = 0, Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Ixz = 0, Iyz = 0;
     for (let i = 0, j = 0; i < n; i++, j += 3) {
@@ -771,14 +828,16 @@ class CollisionSystem {
     for (let a = 0; a < nb; a++) {
       const list = nbrs[a];
       if (!list.length) continue;
-      const B = bodies[a], x = B.pos;
-      if (B.radius > maxR) maxR = B.radius;
+      const B = bodies[a], x = B.pos, ra = B.radius;
+      if (ra > maxR) maxR = ra;
       for (let i = 0; i < B.n; i++) {
         const px = x[3 * i], py = x[3 * i + 1], pz = x[3 * i + 2];
         let inside = false;
+        // бокс соседа уже расширен на его радиус + запас; добавляем свой радиус
         for (let q = 0; q < list.length && !inside; q++) {
           const o = 6 * list[q];
-          inside = px >= box[o] && px <= box[o + 3] && py >= box[o + 1] && py <= box[o + 4] && pz >= box[o + 2] && pz <= box[o + 5];
+          inside = px >= box[o] - ra && px <= box[o + 3] + ra && py >= box[o + 1] - ra && py <= box[o + 4] + ra &&
+                   pz >= box[o + 2] - ra && pz <= box[o + 5] + ra;
         }
         if (!inside) continue;
         this.cBody[count] = a; this.cLocal[count] = i; this.cRad[count] = B.radius;
@@ -1358,6 +1417,10 @@ class PhysicsWorld {
     const maxSteps = this.params.substeps * 4;
     if (steps > maxSteps) { steps = maxSteps; this.acc = 0; } else this.acc -= steps * h;
     for (let s = 0; s < steps; s++) this.substep(h);
+    if (steps > 0) {
+      const T = steps * h, damp = 1 - Math.exp(-RIGID_DAMPING * T), roll = 1 - Math.exp(-ROLL_RESISTANCE * T);
+      for (const b of this.bodies) b.dampRigid(damp, roll);
+    }
     this._sanitize();
     return steps;
   }
@@ -1383,8 +1446,7 @@ class PhysicsWorld {
     }
     col.solve(bodies, P.friction);
     for (let b = 0; b < nb; b++) bodies[b].solveBounds(this.bounds, P.friction);
-    const damp = 1 - Math.exp(-RIGID_DAMPING * h), roll = 1 - Math.exp(-ROLL_RESISTANCE * h);
-    for (let b = 0; b < nb; b++) bodies[b].updateVelocities(h, damp, roll);
+    for (let b = 0; b < nb; b++) bodies[b].updateVelocities(h);
     if (this.grab) this._dampGrab(h);
     this.simTime += h;
   }
@@ -1425,19 +1487,26 @@ class PhysicsWorld {
   // поэтому лёгкие и тяжёлые тела следуют за курсором одинаково «упруго».
   _solveGrab(h) {
     const g = this.grab, b = g.body, x = b.pos, w = b.invMass;
-    const a = 1 - Math.exp(-h * 22);                 // сглаживание рывков курсора
-    for (let k = 0; k < 3; k++) {
-      const prev = g.cur[k];
-      g.cur[k] += (g.target[k] - g.cur[k]) * a;
-      g.curVel[k] = (g.cur[k] - prev) / h;
-    }
+    // сглаживание рывков курсора + предел скорости точки захвата: даже если
+    // курсор «телепортировался», желе тянется с разумной скоростью
+    const a = 1 - Math.exp(-h * 22);
+    let mx = (g.target[0] - g.cur[0]) * a, my = (g.target[1] - g.cur[1]) * a, mz = (g.target[2] - g.cur[2]) * a;
+    const ml = Math.sqrt(mx * mx + my * my + mz * mz), lim = GRAB_MAX_SPEED * h;
+    if (ml > lim) { mx *= lim / ml; my *= lim / ml; mz *= lim / ml; }
+    g.cur[0] += mx; g.cur[1] += my; g.cur[2] += mz;
+    g.curVel[0] = mx / h; g.curVel[1] = my / h; g.curVel[2] = mz / h;
     const om = ParamMap.grabOmega(this.params.grab);
     const K = b.totalMass * om * om, maxStep = 0.02;
+    const floorY = this.bounds.floor + b.radius, maxR = this.bounds.radius - b.radius;
     for (let k = 0; k < g.count; k++) {
       const i = g.ids[k], j = 3 * i;
-      const dx = x[j] - (g.cur[0] + g.off[3 * k]);
-      const dy = x[j + 1] - (g.cur[1] + g.off[3 * k + 1]);
-      const dz = x[j + 2] - (g.cur[2] + g.off[3 * k + 2]);
+      // цель частицы не должна уходить под пол или за стенку — иначе пружина
+      // вдавливала бы желе в тарелку и сминала его
+      let tx = g.cur[0] + g.off[3 * k], ty = g.cur[1] + g.off[3 * k + 1], tz = g.cur[2] + g.off[3 * k + 2];
+      if (ty < floorY) ty = floorY;
+      const tr = Math.sqrt(tx * tx + tz * tz);
+      if (tr > maxR) { tx *= maxR / tr; tz *= maxR / tr; }
+      const dx = x[j] - tx, dy = x[j + 1] - ty, dz = x[j + 2] - tz;
       const C = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (C < 1e-9) continue;
       const alpha = 1 / (K * g.wn[k] * h * h);
@@ -1596,8 +1665,8 @@ class JellyRenderer {
     scene.environmentIntensity = 0.6;
 
     this.camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 120);
-    this.homePos = new THREE.Vector3(0, 5.6, 9.4);
-    this.homeTarget = new THREE.Vector3(0, 0.55, 0);
+    this.homePos = new THREE.Vector3(0, 4.7, 7.9);
+    this.homeTarget = new THREE.Vector3(0, 0.45, 0);
     this.camera.position.copy(this.homePos);
     this.camera.lookAt(this.homeTarget);
 
@@ -1740,10 +1809,15 @@ class JellyRenderer {
     }
   }
 
+  // На широком экране центр проекции сдвигается вправо на ширину панели,
+  // чтобы сцена была по центру свободной области (лучи/резка это учитывают).
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const w = window.innerWidth, h = window.innerHeight, cam = this.camera;
+    const panel = document.getElementById('panel');
+    const off = w > 720 && panel && !panel.classList.contains('collapsed') ? 300 : 0;
+    cam.aspect = (w + off) / h;
+    if (off) cam.setViewOffset(w + off, h, 0, 0, w, h); else cam.clearViewOffset();
+    cam.updateProjectionMatrix();
     this.renderer.setSize(w, h);
   }
 
@@ -2000,8 +2074,12 @@ class UI {
     this.$('defaultsBtn').addEventListener('click', () => { Object.assign(app.world.params, DEFAULT_PARAMS); this.syncSliders(); });
     this.$('pauseChk').addEventListener('change', (e) => { app.world.paused = e.target.checked; });
     this.$('hqChk').addEventListener('change', (e) => app.view.setLevels(e.target.checked ? 2 : 1));
-    this.$('collapse').addEventListener('click', () => this.$('panel').classList.toggle('collapsed'));
+    this.$('collapse').addEventListener('click', () => { this.$('panel').classList.toggle('collapsed'); app.view.resize(); });
+    this.$('modeBadge').addEventListener('click', (e) => { app.setMode(app.input.mode === 'cut' ? 'drag' : 'cut'); e.currentTarget.blur(); });
+    // кнопки не держат фокус — иначе Пробел/Enter «нажимали» бы их повторно
+    this.$('panel').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
     if (window.innerWidth < 720) this.$('panel').classList.add('collapsed');
+    app.view.resize();
 
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -2168,7 +2246,7 @@ class App {
     let top = 0;
     for (const c of centers) if (Math.hypot(c[0] - bx, c[2] - bz) < 1.4) top = Math.max(top, c[1]);
     this.spawn(shape, bx, Math.max(3.2, top + 2.0), bz, { color, vel: [0, -1, 0] });
-    this.ui.toast(`${SHAPES[shape].label} добавлен`);
+    this.ui.toast(`Добавлено: ${SHAPES[shape].label}`);
   }
 
   setMode(mode) {
