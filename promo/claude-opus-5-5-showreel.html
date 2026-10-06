@@ -33,21 +33,6 @@
   }
   #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-  /* Subtitles */
-  #subs {
-    position: absolute; left: 0; right: 0; bottom: calc(var(--u) * 112);
-    display: flex; justify-content: center; padding-inline: 16px;
-    opacity: 0; transform: translateY(calc(var(--u) * 8));
-    transition: opacity .22s ease, transform .22s ease; pointer-events: none;
-  }
-  #subs.on { opacity: 1; transform: none; }
-  #subText {
-    font-size: max(12px, calc(var(--u) * 34)); line-height: 1.3; font-weight: 500;
-    background: rgba(0, 0, 0, .55); color: var(--ink);
-    padding: .28em .8em; border-radius: .35em; text-align: center;
-    max-width: 90%;
-  }
-
   /* Start / replay overlay */
   #overlay {
     position: absolute; inset: 0; z-index: 2;
@@ -96,7 +81,6 @@
 
 <div id="stage" role="region" aria-label="Claude Opus 5.5, a 25-second animated video">
   <canvas id="view" aria-hidden="true"></canvas>
-  <div id="subs" aria-live="polite"><span id="subText"></span></div>
 
   <div id="overlay">
     <button id="playBtn" type="button">
@@ -140,20 +124,8 @@
   const C = {
     ink: [238, 234, 227], muted: [141, 137, 150], ember: [243, 163, 95],
     ice: [169, 200, 255], ok: [127, 214, 164], paper: [232, 226, 214],
-    fn: [255, 217, 168], num: [198, 167, 255]
+    fn: [255, 217, 168], num: [198, 167, 255], bad: [255, 120, 110]
   };
-
-  // Voiceover: one line per scene, each starting with its scene.
-  const SCRIPT = [
-    { start: 0,  text: "Hi, I'm Claude Opus 5.5." },
-    { start: 3,  text: 'I reason carefully through hard problems.' },
-    { start: 6,  text: 'I write, debug, and refactor real code.' },
-    { start: 9,  text: 'I can work across very long documents.' },
-    { start: 12, text: 'I plan and carry out multi-step tasks.' },
-    { start: 15, text: 'I write clearly and analyze with care.' },
-    { start: 18, text: 'And I aim to be honest and safe.' },
-    { start: 21, text: 'Claude Opus 5.5. Built to think. Built to help.' }
-  ];
 
   /* =====================================================================
      SMALL UTILITIES
@@ -178,7 +150,6 @@
      ===================================================================== */
   const $ = id => document.getElementById(id);
   const stage = $('stage'), canvas = $('view'), ctx = canvas.getContext('2d');
-  const subs = $('subs'), subText = $('subText');
   const overlay = $('overlay'), playBtn = $('playBtn'), playLabel = $('playLabel');
   const timerEl = $('timer'), barEl = $('bar'), trackEl = $('track');
   const muteBtn = $('muteBtn'), volEl = $('vol');
@@ -312,44 +283,98 @@
     }
   }
 
-  // --- Coding: tokenized lines with per-character reveal times ---
+  // --- Coding: a small class is written, a test fails, the bug is fixed ---
+  // The last line is first typed with a bug, then backspaced and rewritten.
   const CODE = [
-    'def mean(values):',
-    '    if not values:',
-    '        return 0.0',
-    '    return sum(values) / len(values)'
+    'from dataclasses import dataclass',
+    '',
+    '@dataclass',
+    'class Order:',
+    '    items: list[float]',
+    '    discount: float = 0.0',
+    '',
+    '    def total(self) -> float:',
+    '        subtotal = sum(self.items)',
+    '        return subtotal - self.discount'
   ];
-  const KW = new Set(['def', 'if', 'not', 'return']), BUILTIN = new Set(['sum', 'len']);
+  const FIXED_LINE = '        return round(subtotal * (1 - self.discount), 2)';
+  const BUG_LINE = CODE.length - 1;
+  const KEEP = '        return '.length;                       // prefix kept while fixing
+  const KW = new Set(['from', 'import', 'class', 'def', 'return']);
+  const BUILTIN = new Set(['sum', 'round', 'float', 'list']);
+  // Tiny Python highlighter, run on the visible text each frame.
   function tokenize(line) {
-    const out = [], re = /(\s+)|([A-Za-z_]\w*)|(\d+(?:\.\d+)?)|([^\sA-Za-z_\d])/g;
+    const out = [], re = /(\s+)|(@\w+)|([A-Za-z_]\w*)|(\d+(?:\.\d+)?)|([^\sA-Za-z_\d@])/g;
     let m, afterDef = false;
     while ((m = re.exec(line))) {
       let col = null;
-      if (m[2]) {
-        col = KW.has(m[2]) ? C.ember : BUILTIN.has(m[2]) ? C.ice : afterDef ? C.fn : C.ink;
-        afterDef = m[2] === 'def';
-      } else if (m[3]) col = C.num;
-      else if (m[4]) col = C.muted;
+      if (m[2]) col = C.fn;
+      else if (m[3]) {
+        const w = m[3];
+        col = KW.has(w) ? C.ember : BUILTIN.has(w) ? C.ice : afterDef ? C.fn : w === 'self' ? C.muted : C.ink;
+        afterDef = w === 'def' || w === 'class';
+      } else if (m[4]) col = C.num;
+      else if (m[5]) col = C.muted;
       if (col) out.push({ text: m[0], col: m.index, color: col });
     }
     return out;
   }
-  const CODE_TOKENS = CODE.map(tokenize);
-  const TYPE_T0 = 6.3, CPS = 50, NL_PAUSE = 0.09;
+  const TYPE_T0 = 6.1, CPS = 200, NL_PAUSE = 0.04;
   const LINE_START = [], CHAR_T = [], TICK_T = [];
   {
-    let tt = TYPE_T0;
+    let tt = TYPE_T0, n = 0;
     CODE.forEach(line => {
       LINE_START.push(CHAR_T.length);
       const indent = line.match(/^ */)[0].length;          // auto-indent: leading spaces appear instantly
       for (let i = 0; i < line.length; i++) {
         CHAR_T.push(tt);
-        if (i >= indent) { if (line[i] !== ' ') TICK_T.push(tt); tt += 1 / CPS; }
+        if (i >= indent) { if (line[i] !== ' ' && n++ % 3 === 0) TICK_T.push(tt); tt += 1 / CPS; }
       }
       tt += NL_PAUSE;
     });
   }
   const TYPE_END = CHAR_T[CHAR_T.length - 1];
+  // Debug loop timings (shared with the sound scheduler).
+  const RUN1_T = 7.42, FAIL_T = 7.68;                       // first test run fails
+  const DEL_T0 = 7.84, DEL_T1 = 7.97;                       // backspace the bad expression
+  const FIX_T1 = 8.2;                                       // retype the fix
+  const RUN2_T = 8.25, PASS_T = 8.42;                       // second run passes
+  const CMD = 'pytest -q', CMD_DUR = 0.14;
+  for (let i = 0; i < 3; i++) TICK_T.push(RUN1_T + i * 0.05, RUN2_T + i * 0.045);
+  for (let i = 0; i < 4; i++) TICK_T.push(DEL_T0 + i * 0.035);
+  for (let i = 0; i < 7; i++) TICK_T.push(DEL_T1 + 0.01 + i * 0.033);
+  TICK_T.sort((a, b) => a - b);
+  // Visible text of a code line at time t (handles the bug -> fix rewrite).
+  function codeLineAt(li, t) {
+    const line = CODE[li], start = LINE_START[li];
+    let vis = 0; while (vis < line.length && CHAR_T[start + vis] <= t) vis++;
+    if (li !== BUG_LINE || t < DEL_T0) return line.slice(0, vis);
+    if (t < DEL_T1) return line.slice(0, Math.round(lerp(line.length, KEEP, prog(t, DEL_T0, DEL_T1))));
+    return FIXED_LINE.slice(0, Math.round(lerp(KEEP, FIXED_LINE.length, prog(t, DEL_T1, FIX_T1))));
+  }
+
+  // Faint scrolling code texture behind every scene, pre-rendered once.
+  const CODE_BG_SRC = [
+    'async def plan(task):', '    steps = await outline(task)', '    for step in steps:', '        result = await run(step)',
+    '        if not result.ok:', '            step = revise(step, result)', '    return summarize(steps)', '',
+    'fn parse(input: &str) -> Result<Ast, Error> {', '    let tokens = lex(input)?;', '    Parser::new(tokens).parse()', '}', '',
+    'const cache = new Map();', 'export function memo(fn) {', '  return (key) => cache.get(key) ??', '    cache.set(key, fn(key)).get(key);', '}', '',
+    'SELECT region, AVG(latency_ms)', 'FROM requests', 'WHERE ts > now() - interval \'1 day\'', 'GROUP BY region;', '',
+    'def binary_search(xs, target):', '    lo, hi = 0, len(xs) - 1', '    while lo <= hi:', '        mid = (lo + hi) // 2', '        if xs[mid] < target: lo = mid + 1',
+    '        else: hi = mid - 1', '    return lo', '',
+    'func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {', '    ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)',
+    '    defer cancel()', '}', ''
+  ];
+  const codeBg = document.createElement('canvas');
+  codeBg.width = W; codeBg.height = 1400;
+  {
+    const g = codeBg.getContext('2d');
+    g.font = `400 19px ${MONO}`; g.fillStyle = '#ffffff'; g.textBaseline = 'top';
+    const cols = [40, 520, 1000, 1480];
+    cols.forEach((x, ci) => {
+      for (let k = 0; k < 50; k++) g.fillText(CODE_BG_SRC[(k + ci * 11) % CODE_BG_SRC.length], x, k * 28);
+    });
+  }
 
   // --- Long context: pages flying into a stack ---
   const PAGES = [];
@@ -365,7 +390,20 @@
   }
 
   // --- Agentic work: checklist ---
-  const TASKS = ['Read the codebase', 'Plan the change', 'Edit three files', 'Run the tests and verify'];
+  const TASKS = ['Read the codebase', 'Plan the change', 'Edit the order total', 'Run the tests and verify'];
+  // Tool log shown beside the checklist: [time, text, color].
+  const AGENT_LOG = [
+    [12.35, '$ rg -n discount shop/ tests/', 'ink'],
+    [12.5, 'shop/order.py:10:  return subtotal - self.discount', 'muted'],
+    [12.6, 'tests/test_order.py:21:  Order([100], discount=0.1)', 'muted'],
+    [12.9, '# discount is a rate, not an amount', 'ember'],
+    [13.0, '# expected total: 100 * (1 - 0.1) = 90.0', 'ember'],
+    [13.4, '@@ shop/order.py @@', 'ice'],
+    [13.5, '-        return subtotal - self.discount', 'bad'],
+    [13.6, '+        return round(subtotal * (1 - self.discount), 2)', 'ok'],
+    [13.95, '$ pytest -q', 'ink'],
+    [14.35, '4 passed', 'ok']
+  ];
   const CHECK_T = [12.75, 13.3, 13.85, 14.4];
   const DING_F = [880, 987.77, 1108.73, 1318.51];
 
@@ -493,57 +531,93 @@
     caption(t, 3, 'Reasoning', 'Deep reasoning on hard problems');
   }
 
-  // 6-9s: code editor typing
+  // Window chrome shared by the editor, terminal and diff panels.
+  function codeWindow(x, y, w, h, title) {
+    panel(x, y, w, h);
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.arc(x + 30 + i * 24, y + 28, 6.5, 0, 7); ctx.fill(); }
+    ctx.font = `500 20px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(C.muted, 1);
+    ctx.fillText(title, x + w / 2, y + 29);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x, y + 56, w, 1.5);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+  // Draw one highlighted code line.
+  function codeText(text, x, y, cw) {
+    for (const tok of tokenize(text)) { ctx.fillStyle = rgba(tok.color, 1); ctx.fillText(tok.text, x + tok.col * cw, y); }
+  }
+
+  // 6-9s: editor writes a class, the terminal catches a bug, the fix lands
   function drawCoding(t) {
-    const ex = 430, ey = 150, ew = 1060, eh = 500;
+    const ex = 120, ey = 120, ew = 1080, eh = 560;          // editor
+    const tx = 1240, ty = 120, tw = 560, th = 560;          // terminal
     const p = eOut(prog(t, 5.95, 6.4));
     ctx.translate(0, (1 - p) * 30);
-    ga(1); panel(ex, ey, ew, eh);
-    for (let i = 0; i < 3; i++) { ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.beginPath(); ctx.arc(ex + 34 + i * 26, ey + 32, 7, 0, 7); ctx.fill(); }
-    ctx.font = `500 22px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(C.muted, 1);
-    ctx.fillText('stats.py', ex + ew / 2, ey + 33);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(ex, ey + 64, ew, 1.5);
+    ga(1); codeWindow(ex, ey, ew, eh, 'shop/order.py');
+    ga(eOut(prog(t, 6.05, 6.5))); codeWindow(tx, ty, tw, th, 'terminal');
 
-    let typed = 0; while (typed < CHAR_T.length && CHAR_T[typed] <= t) typed++;
-    ctx.font = `400 32px ${MONO}`; ctx.textBaseline = 'alphabetic';
-    const cw = ctx.measureText('M').width, lh = 56, codeX = ex + 120, top = ey + 138;
+    // --- editor ---
+    ga(1); ctx.font = `400 28px ${MONO}`;
+    const cw = ctx.measureText('M').width, lh = 46, codeX = ex + 92, top = ey + 112;
     let curLine = 0, curCol = 0;
-    CODE.forEach((line, li) => {
-      const start = LINE_START[li];
-      if (typed <= start && li > 0) return;
-      const vis = clamp(typed - start, 0, line.length);
-      const y = top + li * lh;
-      if (typed >= start) { curLine = li; curCol = vis; }
-      ctx.textAlign = 'right'; ctx.fillStyle = rgba(C.muted, 1); ga(0.55);
-      ctx.fillText(String(li + 1), ex + 74, y);
-      ctx.textAlign = 'left'; ga(1);
-      for (const tok of CODE_TOKENS[li]) {
-        if (tok.col >= vis) break;
-        ctx.fillStyle = rgba(tok.color, 1);
-        ctx.fillText(tok.text.slice(0, vis - tok.col), codeX + tok.col * cw, y);
+    const failing = t >= FAIL_T && t < PASS_T, passed = t >= PASS_T;
+    CODE.forEach((_, li) => {
+      if (li > 0 && t < CHAR_T[LINE_START[li]] && !(CODE[li] === '' && t >= CHAR_T[LINE_START[li] - 1])) return;
+      const text = codeLineAt(li, t), y = top + li * lh;
+      if (li === BUG_LINE && (failing || (passed && t < PASS_T + 0.5))) {   // red while failing, green flash on pass
+        const c = failing ? C.bad : C.ok, a = failing ? 0.13 : 0.16 * (1 - prog(t, PASS_T, PASS_T + 0.5));
+        ctx.fillStyle = rgba(c, a); ctx.fillRect(ex + 2, y - 33, ew - 4, lh);
       }
+      ctx.textAlign = 'right'; ctx.fillStyle = rgba(C.muted, 1); ga(0.5);
+      ctx.fillText(String(li + 1), ex + 62, y);
+      ctx.textAlign = 'left'; ga(1);
+      codeText(text, codeX, y, cw);
+      if (li === BUG_LINE && failing && t < DEL_T0) {                 // squiggle under the bad expression
+        ctx.strokeStyle = rgba(C.bad, 1); ctx.lineWidth = 2; ctx.beginPath();
+        for (let x = codeX + KEEP * cw; x <= codeX + text.length * cw; x += 6) ctx.lineTo(x, y + 8 + ((x / 6) % 2 ? 3 : 0));
+        ctx.stroke();
+      }
+      curLine = li; curCol = text.length;
     });
-    // current-line highlight + caret
     const cy = top + curLine * lh;
-    ga(1); ctx.fillStyle = 'rgba(255,255,255,0.035)'; ctx.fillRect(ex + 2, cy - 40, ew - 4, lh);
-    const typing = t < TYPE_END + 0.1;
-    ga(typing || Math.sin(t * 9) > 0 ? 1 : 0.15);
-    ctx.fillStyle = rgba(C.ember, 1); ctx.fillRect(codeX + curCol * cw + 2, cy - 32, 3, 40);
+    ga(1); ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fillRect(ex + 2, cy - 33, ew - 4, lh);
+    const busy = t < TYPE_END + 0.1 || (t > DEL_T0 && t < FIX_T1 + 0.05);
+    ga(busy || Math.sin(t * 9) > 0 ? 1 : 0.15);
+    ctx.fillStyle = rgba(C.ember, 1); ctx.fillRect(codeX + curCol * cw + 2, cy - 27, 3, 34);
 
-    // "Tests passed" badge once the code is written
-    const bp = prog(t, TYPE_END + 0.08, TYPE_END + 0.45);
-    if (bp > 0) {
-      const s = eBack(bp), bx = ex + ew - 300, by = ey + eh - 84;
-      ctx.save(); ctx.translate(bx + 130, by + 26); ctx.scale(s, s); ctx.translate(-(bx + 130), -(by + 26));
-      ga(clamp(bp * 2)); rr(bx, by, 260, 52, 26);
-      ctx.fillStyle = rgba(C.ok, 0.14); ctx.fill(); ctx.strokeStyle = rgba(C.ok, 0.55); ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.strokeStyle = rgba(C.ok, 1); ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      polyPartial([[bx + 30, by + 27], [bx + 40, by + 37], [bx + 58, by + 17]], clamp(bp * 1.6));
-      ctx.font = `600 24px ${SANS}`; ctx.fillStyle = rgba(C.ok, 1); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('Tests passed', bx + 76, by + 27);
-      ctx.restore();
+    // --- terminal ---
+    ctx.font = `400 22px ${MONO}`;
+    const tcw = ctx.measureText('M').width, tl = 36, tX = tx + 28;
+    let row = 0;
+    const out = (text, color, a = 1) => { ga(a); ctx.fillStyle = rgba(color, 1); ctx.fillText(text, tX, ty + 100 + row * tl); row++; };
+    const prompt = (t0) => {                                 // prompt with a command typed from t0
+      const n = Math.round(CMD.length * prog(t, t0, t0 + CMD_DUR));
+      const y = ty + 100 + row * tl;
+      ga(1); ctx.fillStyle = rgba(C.ok, 1); ctx.fillText('~/shop $', tX, y);
+      ctx.fillStyle = rgba(C.ink, 1); ctx.fillText(CMD.slice(0, n), tX + 9 * tcw, y);
+      row++;
+      return tX + (9 + n) * tcw;
+    };
+    let caretX = prompt(RUN1_T), caretRow = 0;
+    if (t >= FAIL_T) {
+      out('F...', C.bad);
+      out('FAILED test_total_discount', C.bad);
+      out('  assert 99.9 == 90.0', C.muted);
+      out('1 failed, 3 passed', C.bad);
+      row++;
+      caretRow = row; caretX = prompt(RUN2_T);
     }
-    ctx.textBaseline = 'alphabetic';
+    if (t >= PASS_T) {
+      out('....', C.ok);
+      const pp = eOut(prog(t, PASS_T, PASS_T + 0.25));
+      out('4 passed', C.ok, pp);
+      ga(pp * 0.5); glow(tX + 60, ty + 100 + (row - 1) * tl - 8, 120, C.ok, 0.35);
+      caretRow = row; caretX = tX;
+      ga(1); ctx.fillStyle = rgba(C.ok, 1); ctx.fillText('~/shop $', tX, ty + 100 + row * tl);
+      caretX = tX + 9 * tcw;
+    }
+    if (t > 6.3) {
+      ga(Math.sin(t * 9) > 0 || (t > RUN1_T && t < RUN1_T + CMD_DUR) ? 0.9 : 0.15);
+      ctx.fillStyle = rgba(C.ink, 1); ctx.fillRect(caretX + 2, ty + 100 + caretRow * tl - 20, 11, 24);
+    }
     caption(t, 6, 'Coding', 'Writes, debugs and refactors real code');
   }
 
@@ -582,10 +656,26 @@
     caption(t, 9, 'Long context', 'Understands huge documents and long contexts');
   }
 
+  // Agent's tool log: search, plan, diff, test run.
+  function drawAgentLog(t) {
+    const x = 900, y = 160, w = 890, h = 490;
+    ga(eOut(prog(t, 12.0, 12.4))); codeWindow(x, y, w, h, 'agent log');
+    ctx.font = `400 21px ${MONO}`;
+    AGENT_LOG.forEach(([t0, text, col], i) => {
+      const p = eOut(prog(t, t0, t0 + 0.18));
+      if (p <= 0) return;
+      const ly = y + 104 + i * 38;
+      if (col === 'bad' || col === 'ok') { ga(p * 0.12); ctx.fillStyle = rgba(C[col], 1); ctx.fillRect(x + 2, ly - 27, w - 4, 38); }
+      ga(p); ctx.fillStyle = rgba(C[col], col === 'muted' ? 1 : 0.95);
+      ctx.fillText(text, x + 28 + (1 - p) * 16, ly);
+    });
+  }
+
   // 12-15s: checklist ticking off
   function drawAgentic(t) {
-    const cx = 580, cy = 160, cw = 760, ch = 490;
+    const cx = 130, cy = 160, cw = 730, ch = 490;
     ga(1); panel(cx, cy, cw, ch);
+    drawAgentLog(t);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.font = `600 20px ${SANS}`; setLS(5); ctx.fillStyle = rgba(C.muted, 1);
     ctx.fillText('TASK', cx + 50, cy + 56); setLS(0);
@@ -783,6 +873,11 @@
       ctx.globalAlpha = d.a * (0.6 + 0.4 * Math.sin(t * 1.3 + d.ph));
       ctx.fillStyle = rgba(tint, 1); ctx.beginPath(); ctx.arc(x, y, d.r, 0, 7); ctx.fill();
     }
+    {                                                           // faint scrolling code texture
+      const off = (t * 16) % codeBg.height;
+      ctx.globalAlpha = 0.045;
+      ctx.drawImage(codeBg, 0, -off); ctx.drawImage(codeBg, 0, codeBg.height - off);
+    }
     SCENES.forEach((s, i) => {
       const a = sceneEnv(s, i, t);
       if (a <= 0.001) return;
@@ -805,7 +900,7 @@
 
   /* =====================================================================
      AUDIO ENGINE (Web Audio API only, everything synthesized)
-     Graph: [music -> duck] + [sfx] -> run -> master -> compressor -> out
+     Graph: [music] + [sfx] -> run -> master -> compressor -> out
      Every sound is scheduled on the audio clock at Play, against the same
      timestamps the visuals use, so sound and picture cannot drift apart.
      ===================================================================== */
@@ -828,10 +923,9 @@
   }
   function makeBuses() {
     const run = actx.createGain(); run.connect(master);
-    const duck = actx.createGain(); duck.connect(run);
-    const music = actx.createGain(); music.gain.value = 0.9; music.connect(duck);
+    const music = actx.createGain(); music.gain.value = 0.9; music.connect(run);
     const sfx = actx.createGain(); sfx.connect(run);
-    return { run, duck, music, sfx };
+    return { run, music, sfx };
   }
   // --- node helpers ---
   function gainTo(dest, v = 0) { const g = actx.createGain(); g.gain.value = v; g.connect(dest); return g; }
@@ -899,6 +993,14 @@
     f.connect(out);
     noise(at, at + dur + 0.05).connect(f);
   }
+  // Low muted buzz when the first test run fails.
+  function failBuzz(at) {
+    [0, 0.13].forEach(o => {
+      const g = gainTo(bus.sfx); perc(g, at + o, 0.07, 0.006, 0.12);
+      const f = filt('lowpass', 900, 1); f.connect(g);
+      osc('square', 98, at + o, at + o + 0.2).connect(f);
+    });
+  }
   // Bell-like ding with inharmonic partials.
   function ding(at, freq) {
     [[1, 0.16, 1.3], [2.76, 0.045, 0.6], [5.4, 0.018, 0.3]].forEach(([m, a, d]) => {
@@ -954,6 +1056,8 @@
     sweep(at(0.05), 2.9);
     EDGES.forEach(e => pulse(at(e.t + EDGE_DUR), e.freq));
     TICK_T.forEach(s => tick(at(s)));
+    failBuzz(at(FAIL_T));
+    ding(at(PASS_T), 1318.51);
     PAGES.forEach(p => whoosh(at(p.t0), 0.62, p.pan));
     CHECK_T.forEach((s, i) => ding(at(s), DING_F[i]));
     chord(at(15.05), 1.75, [220, 277.18, 329.63, 493.88]);       // A add9
@@ -966,97 +1070,10 @@
     bus.run.gain.linearRampToValueAtTime(0.0001, at(DURATION));
   }
 
-  function duck(on) {
-    if (!actx || !bus) return;
-    const g = bus.duck.gain, n = actx.currentTime;
-    g.cancelScheduledValues(n); g.setTargetAtTime(on ? 0.5 : 1, n, on ? 0.06 : 0.25);
-  }
+
 
   /* =====================================================================
-     VOICEOVER (speechSynthesis) + SUBTITLES
-     Each line is spoken when the master clock reaches its scene. The rate
-     is chosen so the line fits its slot, and the words-per-second estimate
-     adapts to the actual voice after every line so nothing runs past 25s.
-     ===================================================================== */
-  const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
-  const speech = { voice: null, wps: 2.7, next: 0, current: null, run: 0, unlocked: false };
-
-  function scoreVoice(v) {
-    const n = v.name.toLowerCase(), l = (v.lang || '').toLowerCase().replace('_', '-');
-    if (!l.startsWith('en')) return -1;
-    let s = l === 'en-us' ? 30 : l === 'en-gb' ? 26 : 6;
-    if (/natural|neural|online/.test(n)) s += 40;
-    if (/premium|enhanced/.test(n)) s += 22;
-    if (/google/.test(n)) s += 20;
-    if (/samantha|ava|allison|aria|jenny|guy|daniel|serena|libby|sonia|zira|karen|moira/.test(n)) s += 12;
-    if (/compact|espeak|novelty|whisper|bad news|bells|boing|bubbles|cellos|zarvox|trinoids|albert|jester|organ|superstar|wobble|grandma|grandpa/.test(n)) s -= 60;
-    if (v.localService) s += 2;
-    return s;
-  }
-  function pickVoice() {
-    if (!synth) return;
-    const best = synth.getVoices().map(v => [scoreVoice(v), v]).filter(x => x[0] >= 0).sort((a, b) => b[0] - a[0])[0];
-    speech.voice = best ? best[1] : null;
-  }
-  if (synth) { pickVoice(); synth.addEventListener ? synth.addEventListener('voiceschanged', pickVoice) : (synth.onvoiceschanged = pickVoice); }
-
-  // Spoken-length estimate: "5.5" is read as three words.
-  const wordUnits = s => s.split(/\s+/).filter(Boolean).length + (s.match(/\d\.\d/g) || []).length * 2;
-
-  function speakLine(i, t) {
-    if (!synth || vol.muted || vol.level === 0) return;
-    const line = SCRIPT[i];
-    const slotEnd = (SCRIPT[i + 1] ? SCRIPT[i + 1].start : DURATION) - 0.3;
-    const slot = Math.max(0.8, slotEnd - t);
-    const words = wordUnits(line.text);
-    const rate = clamp(words / (speech.wps * slot), 1.0, 1.6);
-    const u = new SpeechSynthesisUtterance(line.text);
-    if (speech.voice) { u.voice = speech.voice; u.lang = speech.voice.lang; } else u.lang = 'en-US';
-    u.rate = rate; u.pitch = 1; u.volume = clamp(vol.level);
-    u._run = speech.run; u._words = words;
-    u.onstart = () => { if (u._run !== speech.run) return; u._t = performance.now(); duck(true); };
-    u.onend = u.onerror = () => {
-      u._ended = true;
-      if (u._run !== speech.run) return;
-      if (speech.current === u) duck(false);
-      if (!u._cancelled && u._t) {                       // learn this voice's real pace
-        const d = (performance.now() - u._t) / 1000;
-        if (d > 0.4) speech.wps = clamp(0.5 * speech.wps + 0.5 * (u._words / d / u.rate), 1.6, 4.5);
-      }
-    };
-    const prev = speech.current;
-    speech.current = u;
-    if (prev && !prev._ended) {                          // previous line overran: keep picture sync
-      prev._cancelled = true; synth.cancel();
-      setTimeout(() => synth.speak(u), 30);
-    } else synth.speak(u);
-  }
-  function stopSpeech() {
-    speech.run++;
-    if (speech.current) speech.current._cancelled = true;
-    speech.current = null;
-    if (synth) synth.cancel();
-    duck(false);
-  }
-  function updateSpeech(t) {
-    while (speech.next < SCRIPT.length && t >= SCRIPT[speech.next].start) { speakLine(speech.next, t); speech.next++; }
-  }
-
-  let subIdx = -2;
-  function updateSubs(t) {
-    let idx = -1;
-    SCRIPT.forEach((l, i) => { if (t >= l.start) idx = i; });
-    const until = idx >= 0 ? (SCRIPT[idx + 1] ? SCRIPT[idx + 1].start - 0.12 : DURATION - 0.35) : 0;
-    const key = idx >= 0 && t < until ? idx : -1;
-    if (key === subIdx) return;
-    subIdx = key;
-    if (key < 0) { subs.classList.remove('on'); return; }
-    subText.textContent = SCRIPT[key].text;
-    subs.classList.remove('on'); void subs.offsetWidth; subs.classList.add('on');
-  }
-
-  /* =====================================================================
-     MASTER TIMELINE (one clock drives picture, sound and voice)
+     MASTER TIMELINE (one clock drives picture and sound)
      ===================================================================== */
   const state = { running: false, t0: 0, perf0: 0, raf: 0 };
   const clock = () => (actx ? actx.currentTime - state.t0 : (performance.now() - state.perf0) / 1000);
@@ -1080,25 +1097,18 @@
       state.t0 = actx.currentTime + 0.15;                // small lead so the first events schedule cleanly
       scheduleAll(state.t0);
     } else state.perf0 = performance.now() + 150;
-    // Speech: reset, and unlock with a silent utterance inside the click (needed on iOS).
-    stopSpeech(); speech.next = 0;
-    if (synth && !speech.unlocked) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); speech.unlocked = true; }
-    subIdx = -2;
     state.raf = requestAnimationFrame(frame);
   }
 
   function frame() {
     const t = clock(), tc = clamp(t, 0, DURATION);
-    render(tc); updateHUD(tc); updateSubs(tc);
-    if (t >= 0) updateSpeech(tc);
+    render(tc); updateHUD(tc);
     if (t >= DURATION) { finish(); return; }
     state.raf = requestAnimationFrame(frame);
   }
 
   function finish() {
     state.running = false;
-    stopSpeech();
-    subs.classList.remove('on');
     posterT = 23.9;                                      // replay screen rests on the title card
     render(posterT);
     playLabel.textContent = 'Replay';
@@ -1121,9 +1131,6 @@
   playBtn.addEventListener('click', start);
   muteBtn.addEventListener('click', () => {
     vol.muted = !vol.muted;
-    if (vol.muted && speech.current) {                   // silence the voice now; subtitles keep running
-      speech.current._cancelled = true; if (synth) synth.cancel(); duck(false);
-    }
     applyVolume();
   });
   volEl.addEventListener('input', () => {
