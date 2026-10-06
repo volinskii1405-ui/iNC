@@ -1,0 +1,2249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Jelly Lab — желе на XPBD</title>
+<style>
+  :root {
+    --panel: rgba(255, 255, 255, 0.74);
+    --panel-border: rgba(255, 255, 255, 0.9);
+    --text: #2a2140;
+    --muted: #776d8f;
+    --accent: #ff3d7f;
+    --accent-2: #7b5cff;
+    --chip: rgba(123, 92, 255, 0.10);
+    --shadow: 0 10px 40px rgba(76, 52, 140, 0.18), 0 2px 8px rgba(76, 52, 140, 0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #efe6ff; color: var(--text);
+    font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { position: fixed; inset: 0; }
+  #app canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+  #overlay { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* ---------- панель ---------- */
+  #panel {
+    position: fixed; top: 12px; left: 12px; width: 296px; max-height: calc(100% - 24px);
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 20px;
+    backdrop-filter: blur(16px) saturate(1.5); -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    box-shadow: var(--shadow); overflow: hidden; z-index: 5;
+  }
+  #panel .head { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; }
+  #panel .logo {
+    width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 22px;
+    background: linear-gradient(135deg, #ff6fa5, #ffb347 55%, #7b5cff); box-shadow: 0 4px 14px rgba(255, 61, 127, 0.35);
+  }
+  #panel h1 { margin: 0; font-size: 17px; letter-spacing: 0.2px; }
+  #panel .sub { margin: 0; font-size: 11.5px; color: var(--muted); }
+  #panel .head .grow { flex: 1; min-width: 0; }
+  #panel .scroll { overflow-y: auto; padding: 0 14px 14px; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 10px; border: 0; cursor: pointer; font-size: 15px;
+    background: var(--chip); color: var(--text); transition: transform .15s;
+  }
+  #panel.collapsed .scroll { display: none; }
+  #panel.collapsed .icon-btn { transform: rotate(-90deg); }
+  .section { margin-top: 12px; }
+  .label { font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px 2px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--chip); }
+  .seg button {
+    border: 0; border-radius: 10px; padding: 9px 6px; font: inherit; font-weight: 650; cursor: pointer;
+    background: transparent; color: var(--text); transition: background .15s, box-shadow .15s, color .15s;
+  }
+  .seg button.active { background: #fff; box-shadow: 0 2px 8px rgba(76, 52, 140, 0.16); color: var(--accent); }
+  .row { display: flex; gap: 6px; margin-top: 6px; }
+  .row > * { flex: 1; min-width: 0; }
+  select, .btn {
+    font: inherit; border-radius: 12px; border: 1px solid rgba(123, 92, 255, 0.18); padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.85); color: var(--text); cursor: pointer;
+  }
+  .btn { font-weight: 600; transition: transform .08s, background .15s; white-space: nowrap; }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: linear-gradient(135deg, #ff4f8b, #ff7a59); color: #fff; border: 0; box-shadow: 0 4px 14px rgba(255, 79, 139, 0.35); }
+  .slider { margin: 9px 2px 0; }
+  .slider .top { display: flex; justify-content: space-between; font-size: 12.5px; }
+  .slider .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; margin: 4px 0 0; accent-color: var(--accent-2); }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 12.5px; cursor: pointer; }
+  .check input { accent-color: var(--accent-2); width: 16px; height: 16px; }
+  .stats {
+    margin-top: 12px; padding: 8px 10px; border-radius: 12px; background: rgba(42, 33, 64, 0.06);
+    font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted);
+  }
+
+  /* ---------- подсказки, тосты ---------- */
+  #hints {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 4;
+    max-width: min(860px, calc(100% - 24px)); padding: 9px 16px; border-radius: 16px;
+    background: rgba(42, 33, 64, 0.72); color: #fff; font-size: 12.5px; text-align: center;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: var(--shadow); pointer-events: none;
+  }
+  #hints b { color: #ffd4e5; font-weight: 650; }
+  #hints .keys { display: block; margin-top: 3px; opacity: 0.7; font-size: 11.5px; }
+  #modeBadge {
+    position: fixed; top: 14px; right: 14px; z-index: 4; padding: 8px 14px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--panel-border); box-shadow: var(--shadow);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-weight: 700; pointer-events: none;
+  }
+  #modeBadge.cut { color: #fff; background: linear-gradient(135deg, #ff4f8b, #ff7a59); border-color: transparent; }
+  #toast {
+    position: fixed; top: 64px; left: 50%; transform: translate(-50%, -10px); z-index: 6;
+    padding: 9px 16px; border-radius: 14px; background: rgba(42, 33, 64, 0.85); color: #fff; font-weight: 600;
+    opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #loading {
+    position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; text-align: center; padding: 24px;
+    background: radial-gradient(circle at 50% 40%, #fff6fb, #e9defd); font-size: 16px; color: var(--muted);
+  }
+  #loading .big { font-size: 46px; animation: wob 1.1s ease-in-out infinite; display: inline-block; }
+  @keyframes wob { 0%, 100% { transform: scale(1, 1); } 30% { transform: scale(1.18, 0.84); } 60% { transform: scale(0.9, 1.1); } }
+
+  @media (max-width: 720px) {
+    #panel { width: calc(100% - 24px); max-height: 58%; }
+    #hints { font-size: 11.5px; bottom: 8px; }
+    #modeBadge { top: auto; bottom: 86px; right: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<canvas id="overlay"></canvas>
+
+<div id="panel">
+  <div class="head">
+    <div class="logo">🍮</div>
+    <div class="grow">
+      <h1>Jelly Lab</h1>
+      <p class="sub">XPBD · тетраэдры · резка плоскостью</p>
+    </div>
+    <button class="icon-btn" id="collapse" title="Свернуть панель">▾</button>
+  </div>
+  <div class="scroll">
+    <div class="section">
+      <div class="label">Режим</div>
+      <div class="seg" id="modeSeg">
+        <button data-mode="drag" class="active">✋ Тянуть</button>
+        <button data-mode="cut">🔪 Резать</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="label">Объекты</div>
+      <div class="row">
+        <select id="shapeSelect" aria-label="Форма"></select>
+        <button class="btn primary" id="addBtn">＋ Добавить</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="resetSceneBtn">↺ Сбросить сцену</button>
+        <button class="btn" id="resetCamBtn">🎥 Сбросить камеру</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="label">Физика</div>
+      <div id="sliders"></div>
+      <div class="row"><button class="btn" id="defaultsBtn">По умолчанию</button></div>
+      <label class="check"><input type="checkbox" id="pauseChk"> Пауза (Пробел)</label>
+      <label class="check"><input type="checkbox" id="hqChk" checked> Гладкая поверхность (2 уровня Loop)</label>
+    </div>
+    <div class="stats" id="stats">…</div>
+  </div>
+</div>
+<div id="modeBadge">✋ Тянуть</div>
+<div id="hints"></div>
+<div id="toast"></div>
+<div id="loading"><div><div class="big">🍮</div><div id="loadingText">Загружаем желе…</div></div></div>
+
+<script>
+  // Если модуль не стартовал (нет интернета/CDN заблокирован) — показываем понятную ошибку.
+  setTimeout(function () {
+    if (!window.__jellyStarted) {
+      var t = document.getElementById('loadingText');
+      if (t) t.innerHTML = 'Не удалось запустить сцену.<br>Нужен доступ к CDN jsdelivr.net (Three.js) и браузер с WebGL2.';
+    }
+  }, 9000);
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ==CORE-BEGIN== */
+// ============================================================================
+//  ЯДРО: SDF-фигуры, тетраэдризация, XPBD-физика, столкновения, резка,
+//  построение гладкой поверхности. Блок не зависит от Three.js и DOM —
+//  его можно выполнять и тестировать в Node.
+// ============================================================================
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+const DENSITY = 1.0;            // плотность желе (масса = плотность × объём)
+const MAX_SPEED = 25;           // предел скорости частицы, м/с (защита от «взрывов»)
+const COLLISION_REFRESH = 3;    // пары столкновений пересобираются раз в N подшагов
+const ROLL_RESISTANCE = 2.5;    // 1/с, гашение вращения при контакте с полом
+const RIGID_DAMPING = 0.3;      // 1/с, слабое глобальное гашение отклонений от твёрдого движения
+const DYING_TIME = 0.45;        // секунды, за которые исчезает слишком мелкий кусок
+const MIN_PIECE_VOLUME = 0.0045;// куски меньше этого объёма удаляются
+const MAX_BODIES = 40;
+const MAX_PARTICLES = 16000;
+
+// ------------------------------------------------------------- SDF-примитивы
+const SDF = {
+  box(x, y, z, bx, by, bz) {
+    const qx = Math.abs(x) - bx, qy = Math.abs(y) - by, qz = Math.abs(z) - bz;
+    const ox = Math.max(qx, 0), oy = Math.max(qy, 0), oz = Math.max(qz, 0);
+    return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, qy, qz), 0);
+  },
+  sphere(x, y, z, r) { return Math.sqrt(x * x + y * y + z * z) - r; },
+  torus(x, y, z, R, r) { const q = Math.sqrt(x * x + z * z) - R; return Math.sqrt(q * q + y * y) - r; },
+  roundCylinder(x, y, z, r, hh, rr) {
+    const dx = Math.sqrt(x * x + z * z) - r + rr, dy = Math.abs(y) - hh + rr;
+    return Math.min(Math.max(dx, dy), 0) + Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) - rr;
+  },
+  // усечённый конус (r1 — нижний радиус, r2 — верхний), формула И. Килеза
+  cappedCone(x, y, z, hh, r1, r2) {
+    const qx = Math.sqrt(x * x + z * z), qy = y;
+    const k2x = r2 - r1, k2y = 2 * hh;
+    const cax = qx - Math.min(qx, qy < 0 ? r1 : r2), cay = Math.abs(qy) - hh;
+    const t = clamp(((r2 - qx) * k2x + (hh - qy) * k2y) / (k2x * k2x + k2y * k2y), 0, 1);
+    const cbx = qx - r2 + k2x * t, cby = qy - hh + k2y * t;
+    const s = (cbx < 0 && cay < 0) ? -1 : 1;
+    return s * Math.sqrt(Math.min(cax * cax + cay * cay, cbx * cbx + cby * cby));
+  },
+  ellipsoid(x, y, z, a, b, c) {
+    const k0 = Math.sqrt((x / a) ** 2 + (y / b) ** 2 + (z / c) ** 2);
+    const k1 = Math.sqrt((x / (a * a)) ** 2 + (y / (b * b)) ** 2 + (z / (c * c)) ** 2);
+    return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(a, b, c);
+  },
+  smin(a, b, k) { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; },
+  // 2D-сердце (точное SDF), кончик в (0,0), верх ≈ 1.1
+  heart2(px, py) {
+    px = Math.abs(px);
+    if (py + px > 1) return Math.hypot(px - 0.25, py - 0.75) - Math.SQRT2 / 4;
+    const m = 0.5 * Math.max(px + py, 0);
+    const d1 = px * px + (py - 1) ** 2, d2 = (px - m) ** 2 + (py - m) ** 2;
+    return Math.sqrt(Math.min(d1, d2)) * Math.sign(px - py);
+  },
+};
+
+function heartSDF(x, y, z) {
+  const d2 = SDF.heart2(x, y + 0.55);
+  const rr = 0.17, hz = 0.27;                      // скругление и полутолщина «подушки»
+  const wx = d2 + rr, wy = Math.abs(z) - (hz - rr);
+  return Math.min(Math.max(wx, wy), 0) + Math.hypot(Math.max(wx, 0), Math.max(wy, 0)) - rr;
+}
+
+function bearSDF(x, y, z) {                        // мармеладный мишка: гладкое объединение эллипсоидов
+  const ax = Math.abs(x);
+  let d = SDF.ellipsoid(x, y + 0.15, z, 0.36, 0.42, 0.3);
+  d = SDF.smin(d, SDF.sphere(x, y - 0.38, z, 0.29), 0.12);
+  d = SDF.smin(d, SDF.sphere(ax - 0.21, y - 0.62, z, 0.12), 0.06);
+  d = SDF.smin(d, SDF.ellipsoid(x, y - 0.31, z - 0.22, 0.14, 0.11, 0.11), 0.06);
+  d = SDF.smin(d, SDF.ellipsoid(ax - 0.33, y, z - 0.06, 0.12, 0.18, 0.12), 0.08);
+  d = SDF.smin(d, SDF.ellipsoid(ax - 0.19, y + 0.5, z - 0.06, 0.15, 0.14, 0.16), 0.08);
+  return d;
+}
+
+// h — шаг решётки тетраэдризации, extent — полуразмеры ограничивающего бокса
+const SHAPES = {
+  cube:     { label: 'Куб',     color: '#ff2d55', h: 1 / 7, extent: [0.5, 0.5, 0.5], gridAligned: true,
+              sdf: (x, y, z) => SDF.box(x, y, z, 0.5, 0.5, 0.5) },
+  sphere:   { label: 'Шар',     color: '#ff9500', h: 0.15, extent: [0.6, 0.6, 0.6],
+              sdf: (x, y, z) => SDF.sphere(x, y, z, 0.6) },
+  cylinder: { label: 'Цилиндр', color: '#1fc75a', h: 0.14, extent: [0.45, 0.55, 0.45],
+              sdf: (x, y, z) => SDF.roundCylinder(x, y, z, 0.45, 0.55, 0.08) },
+  torus:    { label: 'Тор',     color: '#2f6bff', h: 0.115, extent: [0.8, 0.24, 0.8],
+              sdf: (x, y, z) => SDF.torus(x, y, z, 0.56, 0.24) },
+  pudding:  { label: 'Пудинг',  color: '#ffb81a', h: 0.14, extent: [0.62, 0.38, 0.62],
+              sdf: (x, y, z) => SDF.cappedCone(x, y, z, 0.28, 0.52, 0.32) - 0.1 },
+  heart:    { label: 'Сердце',  color: '#ff3fa4', h: 0.12, extent: [0.62, 0.56, 0.28], sdf: heartSDF },
+  bear:     { label: 'Мишка',   color: '#9b4dff', h: 0.095, extent: [0.47, 0.75, 0.34], sdf: bearSDF },
+};
+
+const PALETTE = ['#ff2d55', '#ff9500', '#1fc75a', '#2f6bff', '#ffb81a', '#ff3fa4', '#9b4dff',
+                 '#00c2b8', '#ff6a3d', '#3fb8ff', '#b4e01f', '#e040fb'];
+
+// Грани тетраэдра (a,b,c,d) с внешней нормалью при положительном объёме
+// vol6 = ((b-a)×(c-a))·(d-a) > 0.
+const TET_FACES = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
+
+function tetVol6(X, a, b, c, d) {
+  a *= 3; b *= 3; c *= 3; d *= 3;
+  const e1x = X[b] - X[a], e1y = X[b + 1] - X[a + 1], e1z = X[b + 2] - X[a + 2];
+  const e2x = X[c] - X[a], e2y = X[c + 1] - X[a + 1], e2z = X[c + 2] - X[a + 2];
+  const e3x = X[d] - X[a], e3y = X[d + 1] - X[a + 1], e3z = X[d + 2] - X[a + 2];
+  return e1x * (e2y * e3z - e2z * e3y) + e1y * (e2z * e3x - e2x * e3z) + e1z * (e2x * e3y - e2y * e3x);
+}
+
+// ============================================================================
+//  Тетраэдризация SDF-фигуры
+//  1) Кубическая решётка; каждая ячейка делится на 5 тетраэдров: центральный
+//     (правильный, на 4 вершинах решётки с нечётной суммой индексов) и 4
+//     угловых (чётная вершина + 3 её соседа по рёбрам ячейки). Диагонали
+//     граней всегда соединяют «нечётные» вершины, поэтому соседние ячейки
+//     стыкуются конформно, а у сетки нет выделенного направления —
+//     желе ведёт себя одинаково по всем осям.
+//  2) Берём тетраэдры, центр которых внутри фигуры (SDF < 0), оставляем
+//     крупнейшую компоненту связности по граням.
+//  3) Граничные вершины проецируем на поверхность итерациями Ньютона.
+//     Если проекция портит тетраэдр (объём падает/выворачивается),
+//     сдвиг этих вершин уменьшается — гарантия отсутствия вырожденных элементов.
+// ============================================================================
+function buildTetMesh(shape) {
+  const h = shape.h, sdf = shape.sdf, ext = shape.extent;
+  const n = [0, 0, 0], o = [0, 0, 0];
+  for (let a = 0; a < 3; a++) {
+    n[a] = shape.gridAligned ? Math.round(2 * ext[a] / h) : Math.ceil(2 * ext[a] / h) + 2;
+    o[a] = -n[a] * h / 2;
+  }
+  const NY = n[1] + 1, NZ = n[2] + 1, NV = (n[0] + 1) * NY * NZ;
+  const gid = (i, j, k) => (i * NY + j) * NZ + k;
+  const raw = [];
+  const corner = new Array(8);
+  for (let i = 0; i < n[0]; i++) for (let j = 0; j < n[1]; j++) for (let k = 0; k < n[2]; k++) {
+    const par = (i + j + k) & 1;
+    const odd = [], even = [];
+    for (let c = 0; c < 8; c++) {
+      const a = c & 1, b = (c >> 1) & 1, d = (c >> 2) & 1;
+      corner[c] = [a, b, d];
+      ((a + b + d + par) & 1 ? odd : even).push(c);
+    }
+    const cand = [odd];                                  // центральный тетраэдр
+    for (const e of even) cand.push([e, e ^ 1, e ^ 2, e ^ 4]);   // угловые
+    for (const tet of cand) {
+      let cx = 0, cy = 0, cz = 0;
+      for (const c of tet) { cx += corner[c][0]; cy += corner[c][1]; cz += corner[c][2]; }
+      if (sdf(o[0] + (i + cx / 4) * h, o[1] + (j + cy / 4) * h, o[2] + (k + cz / 4) * h) < 0) {
+        for (const c of tet) raw.push(gid(i + corner[c][0], j + corner[c][1], k + corner[c][2]));
+      }
+    }
+  }
+
+  // --- крупнейшая компонента связности по общим граням
+  const m0 = raw.length / 4;
+  const uf = new Int32Array(m0);
+  for (let t = 0; t < m0; t++) uf[t] = t;
+  const find = (x) => { while (uf[x] !== x) { uf[x] = uf[uf[x]]; x = uf[x]; } return x; };
+  const faceOwner = new Map();
+  for (let t = 0; t < m0; t++) {
+    for (const f of TET_FACES) {
+      const v = [raw[4 * t + f[0]], raw[4 * t + f[1]], raw[4 * t + f[2]]].sort((p, q) => p - q);
+      const key = (v[0] * NV + v[1]) * NV + v[2];
+      const other = faceOwner.get(key);
+      if (other === undefined) faceOwner.set(key, t);
+      else { const ra = find(t), rb = find(other); if (ra !== rb) uf[ra] = rb; }
+    }
+  }
+  const sizes = new Map();
+  let bestRoot = -1, bestSize = 0;
+  for (let t = 0; t < m0; t++) {
+    const r = find(t), s = (sizes.get(r) || 0) + 1;
+    sizes.set(r, s);
+    if (s > bestSize) { bestSize = s; bestRoot = r; }
+  }
+
+  // --- компактная нумерация вершин
+  const remap = new Int32Array(NV).fill(-1);
+  const posArr = [], tetArr = [];
+  for (let t = 0; t < m0; t++) {
+    if (find(t) !== bestRoot) continue;
+    for (let q = 0; q < 4; q++) {
+      const g = raw[4 * t + q];
+      if (remap[g] < 0) {
+        const kk = g % NZ, jj = Math.floor(g / NZ) % NY, ii = Math.floor(g / (NY * NZ));
+        remap[g] = posArr.length / 3;
+        posArr.push(o[0] + ii * h, o[1] + jj * h, o[2] + kk * h);
+      }
+      tetArr.push(remap[g]);
+    }
+  }
+  const pos = Float64Array.from(posArr);
+  const tets = Int32Array.from(tetArr);
+  const nv = pos.length / 3, m = tets.length / 4;
+  for (let t = 0; t < m; t++) {                     // положительная ориентация
+    if (tetVol6(pos, tets[4 * t], tets[4 * t + 1], tets[4 * t + 2], tets[4 * t + 3]) < 0) {
+      const tmp = tets[4 * t + 2]; tets[4 * t + 2] = tets[4 * t + 3]; tets[4 * t + 3] = tmp;
+    }
+  }
+
+  // --- проекция граничных вершин на поверхность
+  const boundary = new Uint8Array(nv);
+  const surf = extractSurface(tets, nv);
+  for (let k = 0; k < surf.length; k++) boundary[surf[k]] = 1;
+  const orig = Float64Array.from(pos), target = Float64Array.from(pos);
+  const e = 1e-4;
+  for (let v = 0; v < nv; v++) {
+    if (!boundary[v]) continue;
+    let x = pos[3 * v], y = pos[3 * v + 1], z = pos[3 * v + 2];
+    for (let it = 0; it < 6; it++) {
+      const f = sdf(x, y, z);
+      if (Math.abs(f) < 1e-6) break;
+      const gx = (sdf(x + e, y, z) - sdf(x - e, y, z)) / (2 * e);
+      const gy = (sdf(x, y + e, z) - sdf(x, y - e, z)) / (2 * e);
+      const gz = (sdf(x, y, z + e) - sdf(x, y, z - e)) / (2 * e);
+      const g2 = gx * gx + gy * gy + gz * gz;
+      if (g2 < 1e-12) break;
+      x -= f * gx / g2; y -= f * gy / g2; z -= f * gz / g2;
+    }
+    let dx = x - orig[3 * v], dy = y - orig[3 * v + 1], dz = z - orig[3 * v + 2];
+    const dl = Math.sqrt(dx * dx + dy * dy + dz * dz), maxD = 1.2 * h;
+    if (dl > maxD) { dx *= maxD / dl; dy *= maxD / dl; dz *= maxD / dl; }
+    target[3 * v] = orig[3 * v] + dx; target[3 * v + 1] = orig[3 * v + 1] + dy; target[3 * v + 2] = orig[3 * v + 2] + dz;
+  }
+  const sFac = new Float64Array(nv).fill(1);
+  const minVol6 = 0.22 * h * h * h;                  // угловой тетраэдр: V = h³/6 → vol6 = h³
+  const apply = () => {
+    for (let v = 0; v < nv; v++) {
+      if (!boundary[v]) continue;
+      for (let a = 0; a < 3; a++) pos[3 * v + a] = orig[3 * v + a] + sFac[v] * (target[3 * v + a] - orig[3 * v + a]);
+    }
+  };
+  for (let iter = 0; iter < 14; iter++) {
+    apply();
+    let bad = 0;
+    for (let t = 0; t < m; t++) {
+      if (tetVol6(pos, tets[4 * t], tets[4 * t + 1], tets[4 * t + 2], tets[4 * t + 3]) < minVol6) {
+        bad++;
+        for (let q = 0; q < 4; q++) { const v = tets[4 * t + q]; if (boundary[v]) sFac[v] *= iter < 12 ? 0.6 : 0; }
+      }
+    }
+    if (!bad) break;
+  }
+  apply();
+
+  // центрируем (центр масс вершин в начале координат)
+  let cx = 0, cy = 0, cz = 0;
+  for (let v = 0; v < nv; v++) { cx += pos[3 * v]; cy += pos[3 * v + 1]; cz += pos[3 * v + 2]; }
+  cx /= nv; cy /= nv; cz /= nv;
+  for (let v = 0; v < nv; v++) { pos[3 * v] -= cx; pos[3 * v + 1] -= cy; pos[3 * v + 2] -= cz; }
+  return { pos, tets, h };
+}
+
+// Граница тетраэдральной сетки: грани, принадлежащие ровно одному тетраэдру.
+function extractSurface(tets, n) {
+  const m = tets.length / 4, map = new Map();
+  for (let t = 0; t < m; t++) {
+    for (let f = 0; f < 4; f++) {
+      const F = TET_FACES[f];
+      let a = tets[4 * t + F[0]], b = tets[4 * t + F[1]], c = tets[4 * t + F[2]];
+      // ключ по отсортированной тройке
+      if (a > b) { const x = a; a = b; b = x; }
+      if (b > c) { const x = b; b = c; c = x; }
+      if (a > b) { const x = a; a = b; b = x; }
+      const key = (a * n + b) * n + c;
+      const prev = map.get(key);
+      map.set(key, prev === undefined ? 4 * t + f : -1);
+    }
+  }
+  const out = [];
+  for (const v of map.values()) {
+    if (v < 0) continue;
+    const t = v >> 2, F = TET_FACES[v & 3];
+    out.push(tets[4 * t + F[0]], tets[4 * t + F[1]], tets[4 * t + F[2]]);
+  }
+  return Int32Array.from(out);
+}
+
+// ============================================================================
+//  Мягкое тело (XPBD на тетраэдрах)
+//  Частицы — вершины тетраэдров. Ограничения:
+//   • длины рёбер: C = |xb − xa| − L0, податливость α = 1/(E·L0);
+//   • объёма тетраэдров: C = 6(V − V0), податливость α = 36·V0/(κ·E).
+//  Схема «малых шагов» (Macklin et al. 2019): много подшагов, одна итерация
+//  на подшаг, множители Лагранжа сбрасываются каждый подшаг. Это даёт
+//  безусловно устойчивую и почти не «дрожащую» симуляцию.
+// ============================================================================
+let NEXT_BODY_ID = 1;
+
+class SoftBody {
+  constructor(o) {
+    this.id = NEXT_BODY_ID++;
+    this.n = o.pos.length / 3;
+    this.pos = Float64Array.from(o.pos);
+    this.prev = Float64Array.from(o.pos);
+    this.vel = o.vel ? Float64Array.from(o.vel) : new Float64Array(this.n * 3);
+    this.rest = Float64Array.from(o.rest);          // форма покоя (только для длин/объёмов)
+    this.tets = Int32Array.from(o.tets);
+    this.numTets = this.tets.length / 4;
+    this.h = o.h;
+    this.radius = 0.42 * o.h;                         // радиус частицы для контактов
+    this.color = o.color;
+    this.shape = o.shape;
+    this.dying = 0;
+    this.maxSpeed = 0;
+    this._initPhysics();
+    this.surfTris = extractSurface(this.tets, this.n);
+  }
+
+  _initPhysics() {
+    const n = this.n, m = this.numTets, T = this.tets, R = this.rest;
+    this.restVol6 = new Float64Array(m);
+    const mass = new Float64Array(n);
+    let total = 0;
+    for (let t = 0; t < m; t++) {
+      const v6 = tetVol6(R, T[4 * t], T[4 * t + 1], T[4 * t + 2], T[4 * t + 3]);
+      this.restVol6[t] = v6;
+      const mv = DENSITY * v6 / 24;                   // V/4 на каждую вершину
+      for (let q = 0; q < 4; q++) mass[T[4 * t + q]] += mv;
+      total += 4 * mv;
+    }
+    this.restVolume = total / DENSITY;
+    // нижняя граница массы: крошечные частицы у реза не делают систему жёсткой
+    const minMass = 0.25 * total / n;
+    this.invMass = new Float64Array(n);
+    let tm = 0;
+    for (let i = 0; i < n; i++) { mass[i] = Math.max(mass[i], minMass); this.invMass[i] = 1 / mass[i]; tm += mass[i]; }
+    this.mass = mass;
+    this.totalMass = tm;
+
+    // уникальные рёбра: кодируем пару числом и сортируем
+    const keys = new Float64Array(6 * m);
+    const P = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+    let c = 0;
+    for (let t = 0; t < m; t++) {
+      for (const [p, q] of P) {
+        let a = T[4 * t + p], b = T[4 * t + q];
+        if (a > b) { const x = a; a = b; b = x; }
+        keys[c++] = a * n + b;
+      }
+    }
+    keys.sort();
+    const edges = [];
+    for (let k = 0; k < c; k++) {
+      if (k > 0 && keys[k] === keys[k - 1]) continue;
+      const b = keys[k] % n, a = (keys[k] - b) / n;
+      edges.push(a, b);
+    }
+    this.edges = Int32Array.from(edges);
+    this.numEdges = edges.length / 2;
+    this.invRestLen = new Float64Array(this.numEdges);
+    this.restLen = new Float64Array(this.numEdges);
+    for (let e = 0; e < this.numEdges; e++) {
+      const a = 3 * this.edges[2 * e], b = 3 * this.edges[2 * e + 1];
+      const L = Math.hypot(R[b] - R[a], R[b + 1] - R[a + 1], R[b + 2] - R[a + 2]);
+      this.restLen[e] = L;
+      this.invRestLen[e] = 1 / Math.max(L, 1e-6);
+    }
+  }
+
+  // предсказание позиций (явный Эйлер)
+  integrate(h, g) {
+    const x = this.pos, p = this.prev, v = this.vel, dvy = -g * h;
+    for (let j = 0, N = 3 * this.n; j < N; j += 3) {
+      v[j + 1] += dvy;
+      p[j] = x[j]; p[j + 1] = x[j + 1]; p[j + 2] = x[j + 2];
+      x[j] += v[j] * h; x[j + 1] += v[j + 1] * h; x[j + 2] += v[j + 2] * h;
+    }
+  }
+
+  // gamma = τ/h — вязкость Рэлея (XPBD, Macklin 2016): демпфирует скорость
+  // изменения длины ребра. Гасит деформацию, но не трогает твёрдое движение,
+  // и сильнее действует на быстрые (ударные) моды, чем на медленное колыхание.
+  solveEdges(alphaBase, gamma) {
+    const E = this.edges, L0 = this.restLen, iL = this.invRestLen, x = this.pos, p = this.prev, w = this.invMass;
+    const g1 = 1 + gamma;
+    for (let e = 0, m = this.numEdges; e < m; e++) {
+      const a = E[2 * e], b = E[2 * e + 1];
+      const wa = w[a], wb = w[b];
+      const ia = 3 * a, ib = 3 * b;
+      const dx = x[ib] - x[ia], dy = x[ib + 1] - x[ia + 1], dz = x[ib + 2] - x[ia + 2];
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len < 1e-12) continue;
+      // ∇C·(x − x_prev): изменение длины ребра за подшаг
+      const vr = (dx * (x[ib] - p[ib] - x[ia] + p[ia]) + dy * (x[ib + 1] - p[ib + 1] - x[ia + 1] + p[ia + 1]) +
+                  dz * (x[ib + 2] - p[ib + 2] - x[ia + 2] + p[ia + 2])) / len;
+      const s = -(len - L0[e] + gamma * vr) / ((g1 * (wa + wb) + alphaBase * iL[e]) * len);
+      x[ia] -= s * wa * dx; x[ia + 1] -= s * wa * dy; x[ia + 2] -= s * wa * dz;
+      x[ib] += s * wb * dx; x[ib + 1] += s * wb * dy; x[ib + 2] += s * wb * dz;
+    }
+  }
+
+  solveVolumes(alphaBase) {
+    const T = this.tets, V6 = this.restVol6, x = this.pos, w = this.invMass;
+    for (let t = 0, m = this.numTets; t < m; t++) {
+      const a = T[4 * t], b = T[4 * t + 1], c = T[4 * t + 2], d = T[4 * t + 3];
+      const i0 = 3 * a, i1 = 3 * b, i2 = 3 * c, i3 = 3 * d;
+      const w0 = w[a], w1 = w[b], w2 = w[c], w3 = w[d];
+      const e1x = x[i1] - x[i0], e1y = x[i1 + 1] - x[i0 + 1], e1z = x[i1 + 2] - x[i0 + 2];
+      const e2x = x[i2] - x[i0], e2y = x[i2 + 1] - x[i0 + 1], e2z = x[i2 + 2] - x[i0 + 2];
+      const e3x = x[i3] - x[i0], e3y = x[i3 + 1] - x[i0 + 1], e3z = x[i3 + 2] - x[i0 + 2];
+      // ∇ det[e1,e2,e3]: g1 = e2×e3, g2 = e3×e1, g3 = e1×e2, g0 = −(g1+g2+g3)
+      const g1x = e2y * e3z - e2z * e3y, g1y = e2z * e3x - e2x * e3z, g1z = e2x * e3y - e2y * e3x;
+      const g2x = e3y * e1z - e3z * e1y, g2y = e3z * e1x - e3x * e1z, g2z = e3x * e1y - e3y * e1x;
+      const g3x = e1y * e2z - e1z * e2y, g3y = e1z * e2x - e1x * e2z, g3z = e1x * e2y - e1y * e2x;
+      const g0x = -g1x - g2x - g3x, g0y = -g1y - g2y - g3y, g0z = -g1z - g2z - g3z;
+      const C = e1x * g1x + e1y * g1y + e1z * g1z - V6[t];
+      const W = w0 * (g0x * g0x + g0y * g0y + g0z * g0z) + w1 * (g1x * g1x + g1y * g1y + g1z * g1z) +
+                w2 * (g2x * g2x + g2y * g2y + g2z * g2z) + w3 * (g3x * g3x + g3y * g3y + g3z * g3z);
+      if (W < 1e-24) continue;
+      const s = -C / (W + alphaBase * V6[t]);
+      x[i0] += s * w0 * g0x; x[i0 + 1] += s * w0 * g0y; x[i0 + 2] += s * w0 * g0z;
+      x[i1] += s * w1 * g1x; x[i1 + 1] += s * w1 * g1y; x[i1 + 2] += s * w1 * g1z;
+      x[i2] += s * w2 * g2x; x[i2 + 1] += s * w2 * g2y; x[i2 + 2] += s * w2 * g2z;
+      x[i3] += s * w3 * g3x; x[i3 + 1] += s * w3 * g3y; x[i3 + 2] += s * w3 * g3z;
+    }
+  }
+
+  // Пол, цилиндрическая стенка «тарелки» и потолок. Трение по Кулону в
+  // позиционной форме: касательное смещение за подшаг гасится не более чем на μ·глубину.
+  solveBounds(bounds, mu) {
+    const x = this.pos, p = this.prev, r = this.radius;
+    const floorY = bounds.floor + r, R = bounds.radius - r, R2 = R * R, ceil = bounds.ceiling - r;
+    let contacts = 0;
+    for (let j = 0, N = 3 * this.n; j < N; j += 3) {
+      if (x[j + 1] < floorY) {
+        contacts++;
+        const pen = floorY - x[j + 1];
+        x[j + 1] = floorY;
+        const dx = x[j] - p[j], dz = x[j + 2] - p[j + 2];
+        const dt = Math.sqrt(dx * dx + dz * dz);
+        if (dt > 1e-12) {
+          const k = Math.min(mu * pen / dt, 1);
+          x[j] -= dx * k; x[j + 2] -= dz * k;
+        }
+      }
+      const rr = x[j] * x[j] + x[j + 2] * x[j + 2];
+      if (rr > R2) {
+        const d = Math.sqrt(rr), nx = x[j] / d, nz = x[j + 2] / d, pen = d - R;
+        x[j] = nx * R; x[j + 2] = nz * R;
+        let dx = x[j] - p[j], dy = x[j + 1] - p[j + 1], dz = x[j + 2] - p[j + 2];
+        const dn = dx * nx + dz * nz;
+        dx -= dn * nx; dz -= dn * nz;
+        const dt = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dt > 1e-12) {
+          const k = Math.min(0.5 * mu * pen / dt, 1);
+          x[j] -= dx * k; x[j + 1] -= dy * k; x[j + 2] -= dz * k;
+        }
+      }
+      if (x[j + 1] > ceil) x[j + 1] = ceil;
+    }
+    this.contacts = contacts;
+  }
+
+  // v = (x − x_prev)/h, ограничение скорости и демпфирование.
+  // Основное затухание — вязкость Рэлея в рёбрах (см. solveEdges). Здесь —
+  // слабое демпфирование, «сохраняющее твёрдое движение» (Müller et al. 2007):
+  // гасится только отклонение скоростей от поступательно-вращательного
+  // движения тела, поэтому полёт и кувырки не тормозятся.
+  // roll — сопротивление качению: при контакте с полом гасим вращение тела
+  // (вязкие потери в пятне контакта), иначе шар катался бы вечно.
+  updateVelocities(h, damp, roll) {
+    const n = this.n, x = this.pos, p = this.prev, v = this.vel, m = this.mass;
+    const ih = 1 / h, vmax2 = MAX_SPEED * MAX_SPEED;
+    let M = 0, cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0, smax = 0;
+    for (let i = 0, j = 0; i < n; i++, j += 3) {
+      let ux = (x[j] - p[j]) * ih, uy = (x[j + 1] - p[j + 1]) * ih, uz = (x[j + 2] - p[j + 2]) * ih;
+      let s2 = ux * ux + uy * uy + uz * uz;
+      if (s2 > vmax2) { const k = MAX_SPEED / Math.sqrt(s2); ux *= k; uy *= k; uz *= k; s2 = vmax2; }
+      if (s2 > smax) smax = s2;
+      v[j] = ux; v[j + 1] = uy; v[j + 2] = uz;
+      const mi = m[i];
+      M += mi; cx += mi * x[j]; cy += mi * x[j + 1]; cz += mi * x[j + 2];
+      vx += mi * ux; vy += mi * uy; vz += mi * uz;
+    }
+    this.maxSpeed = Math.sqrt(smax);
+    if (!(this.contacts > 0)) roll = 0;
+    if (damp <= 0 && roll <= 0) return;
+    cx /= M; cy /= M; cz /= M; vx /= M; vy /= M; vz /= M;
+    let Lx = 0, Ly = 0, Lz = 0, Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Ixz = 0, Iyz = 0;
+    for (let i = 0, j = 0; i < n; i++, j += 3) {
+      const mi = m[i], rx = x[j] - cx, ry = x[j + 1] - cy, rz = x[j + 2] - cz;
+      const ux = v[j], uy = v[j + 1], uz = v[j + 2];
+      Lx += mi * (ry * uz - rz * uy); Ly += mi * (rz * ux - rx * uz); Lz += mi * (rx * uy - ry * ux);
+      Ixx += mi * (ry * ry + rz * rz); Iyy += mi * (rx * rx + rz * rz); Izz += mi * (rx * rx + ry * ry);
+      Ixy -= mi * rx * ry; Ixz -= mi * rx * rz; Iyz -= mi * ry * rz;
+    }
+    // ω = I⁻¹·L (симметричная 3×3)
+    const A = Iyy * Izz - Iyz * Iyz, B = Ixz * Iyz - Ixy * Izz, C = Ixy * Iyz - Ixz * Iyy;
+    const det = Ixx * A + Ixy * B + Ixz * C;
+    let wx = 0, wy = 0, wz = 0;
+    if (Math.abs(det) > 1e-14) {
+      const D = Ixx * Izz - Ixz * Ixz, Ee = Ixy * Ixz - Ixx * Iyz, F = Ixx * Iyy - Ixy * Ixy;
+      const id = 1 / det;
+      wx = (A * Lx + B * Ly + C * Lz) * id;
+      wy = (B * Lx + D * Ly + Ee * Lz) * id;
+      wz = (C * Lx + Ee * Ly + F * Lz) * id;
+    }
+    for (let i = 0, j = 0; i < n; i++, j += 3) {
+      const rx = x[j] - cx, ry = x[j + 1] - cy, rz = x[j + 2] - cz;
+      const ox = wy * rz - wz * ry, oy = wz * rx - wx * rz, oz = wx * ry - wy * rx;   // ω × r
+      v[j] += (vx + ox - v[j]) * damp - ox * roll;
+      v[j + 1] += (vy + oy - v[j + 1]) * damp - oy * roll;
+      v[j + 2] += (vz + oz - v[j + 2]) * damp - oz * roll;
+    }
+  }
+
+  center(out = [0, 0, 0]) {
+    const x = this.pos, m = this.mass;
+    let cx = 0, cy = 0, cz = 0, M = 0;
+    for (let i = 0, j = 0; i < this.n; i++, j += 3) { cx += m[i] * x[j]; cy += m[i] * x[j + 1]; cz += m[i] * x[j + 2]; M += m[i]; }
+    out[0] = cx / M; out[1] = cy / M; out[2] = cz / M;
+    return out;
+  }
+
+  currentVolume() {
+    let v = 0;
+    const T = this.tets;
+    for (let t = 0; t < this.numTets; t++) v += tetVol6(this.pos, T[4 * t], T[4 * t + 1], T[4 * t + 2], T[4 * t + 3]);
+    return v / 6;
+  }
+}
+
+// ============================================================================
+//  Столкновения между телами
+//  Каждая частица — сфера радиуса r. Пары «частица–частица» разных тел ищутся
+//  через пространственный хэш раз в несколько подшагов (с запасом margin
+//  на перемещение), а разрешаются каждый подшаг как XPBD-контакты с трением.
+//  Внутренние частицы тоже участвуют, поэтому даже при глубоком прогибе тела
+//  не проваливаются друг в друга. Широкая фаза: AABB тел.
+// ============================================================================
+class CollisionSystem {
+  constructor() {
+    this.maxPairs = 80000;
+    this.pairs = new Int32Array(this.maxPairs * 4);
+    this.numPairs = 0;
+    this.dirty = true;
+    this.age = 0;
+    this.cap = 0;
+    this.tableSize = 0;
+    this._alloc(2048);
+  }
+
+  _alloc(n) {
+    this.cap = n;
+    this.cBody = new Int32Array(n); this.cLocal = new Int32Array(n);
+    this.cPos = new Float64Array(3 * n); this.cRad = new Float64Array(n);
+    this.cCell = new Int32Array(n); this.entries = new Int32Array(n);
+  }
+
+  rebuild(bodies, margin) {
+    this.dirty = false; this.age = 0; this.numPairs = 0;
+    const nb = bodies.length;
+    if (nb < 2) return;
+    const box = new Float64Array(6 * nb);
+    for (let b = 0; b < nb; b++) {
+      const B = bodies[b], x = B.pos;
+      if (B.dying > 0) { box[6 * b] = 1; box[6 * b + 3] = -1; continue; }
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (let j = 0; j < 3 * B.n; j += 3) {
+        const px = x[j], py = x[j + 1], pz = x[j + 2];
+        if (px < x0) x0 = px; if (px > x1) x1 = px;
+        if (py < y0) y0 = py; if (py > y1) y1 = py;
+        if (pz < z0) z0 = pz; if (pz > z1) z1 = pz;
+      }
+      const e = B.radius + margin;
+      box[6 * b] = x0 - e; box[6 * b + 1] = y0 - e; box[6 * b + 2] = z0 - e;
+      box[6 * b + 3] = x1 + e; box[6 * b + 4] = y1 + e; box[6 * b + 5] = z1 + e;
+    }
+    const nbrs = Array.from({ length: nb }, () => []);
+    let any = false;
+    for (let a = 0; a < nb; a++) {
+      if (box[6 * a] > box[6 * a + 3]) continue;
+      for (let b = a + 1; b < nb; b++) {
+        if (box[6 * b] > box[6 * b + 3]) continue;
+        if (box[6 * a] <= box[6 * b + 3] && box[6 * b] <= box[6 * a + 3] &&
+            box[6 * a + 1] <= box[6 * b + 4] && box[6 * b + 1] <= box[6 * a + 4] &&
+            box[6 * a + 2] <= box[6 * b + 5] && box[6 * b + 2] <= box[6 * a + 5]) {
+          nbrs[a].push(b); nbrs[b].push(a); any = true;
+        }
+      }
+    }
+    if (!any) return;
+
+    // кандидаты: частицы, попавшие в AABB хотя бы одного соседнего тела
+    let total = 0;
+    for (let a = 0; a < nb; a++) if (nbrs[a].length) total += bodies[a].n;
+    if (total > this.cap) this._alloc(Math.max(total, this.cap * 2));
+    let count = 0, maxR = 0;
+    for (let a = 0; a < nb; a++) {
+      const list = nbrs[a];
+      if (!list.length) continue;
+      const B = bodies[a], x = B.pos;
+      if (B.radius > maxR) maxR = B.radius;
+      for (let i = 0; i < B.n; i++) {
+        const px = x[3 * i], py = x[3 * i + 1], pz = x[3 * i + 2];
+        let inside = false;
+        for (let q = 0; q < list.length && !inside; q++) {
+          const o = 6 * list[q];
+          inside = px >= box[o] && px <= box[o + 3] && py >= box[o + 1] && py <= box[o + 4] && pz >= box[o + 2] && pz <= box[o + 5];
+        }
+        if (!inside) continue;
+        this.cBody[count] = a; this.cLocal[count] = i; this.cRad[count] = B.radius;
+        this.cPos[3 * count] = px; this.cPos[3 * count + 1] = py; this.cPos[3 * count + 2] = pz;
+        count++;
+      }
+    }
+    if (count < 2) return;
+
+    // хэш-сетка: подсчёт → префиксные суммы → раскладка (без аллокаций на кадр)
+    const spacing = 2 * maxR + margin, inv = 1 / spacing;
+    let ts = 1;
+    while (ts < 2 * count) ts <<= 1;
+    if (ts > this.tableSize) { this.tableSize = ts; this.cellStart = new Int32Array(ts + 1); }
+    else this.cellStart.fill(0, 0, ts + 1);
+    const mask = ts - 1, start = this.cellStart, cell = this.cCell, P = this.cPos;
+    const hash = (xi, yi, zi) => (Math.imul(xi, 92837111) ^ Math.imul(yi, 689287499) ^ Math.imul(zi, 283923481)) & mask;
+    for (let c = 0; c < count; c++) {
+      const hc = hash(Math.floor(P[3 * c] * inv), Math.floor(P[3 * c + 1] * inv), Math.floor(P[3 * c + 2] * inv));
+      cell[c] = hc; start[hc]++;
+    }
+    let s = 0;
+    for (let i = 0; i < ts; i++) { s += start[i]; start[i] = s; }
+    start[ts] = s;
+    for (let c = 0; c < count; c++) { const hc = cell[c]; start[hc]--; this.entries[start[hc]] = c; }
+
+    const pairs = this.pairs, maxPairs = this.maxPairs, ent = this.entries, cb = this.cBody, cr = this.cRad, cl = this.cLocal;
+    let np = 0;
+    for (let p = 0; p < count && np < maxPairs; p++) {
+      const px = P[3 * p], py = P[3 * p + 1], pz = P[3 * p + 2];
+      const xi = Math.floor(px * inv), yi = Math.floor(py * inv), zi = Math.floor(pz * inv);
+      const bp = cb[p], rp = cr[p];
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const hc = hash(xi + dx, yi + dy, zi + dz);
+        for (let k = start[hc], e = start[hc + 1]; k < e; k++) {
+          const q = ent[k];
+          if (q <= p || cb[q] === bp) continue;
+          const ddx = P[3 * q] - px, ddy = P[3 * q + 1] - py, ddz = P[3 * q + 2] - pz;
+          const lim = rp + cr[q] + margin;
+          if (ddx * ddx + ddy * ddy + ddz * ddz > lim * lim) continue;
+          if (np >= maxPairs) break;
+          pairs[4 * np] = bp; pairs[4 * np + 1] = cl[p]; pairs[4 * np + 2] = cb[q]; pairs[4 * np + 3] = cl[q];
+          np++;
+        }
+      }
+    }
+    this.numPairs = np;
+  }
+
+  solve(bodies, mu) {
+    const P = this.pairs;
+    for (let k = 0; k < this.numPairs; k++) {
+      const A = bodies[P[4 * k]], B = bodies[P[4 * k + 2]];
+      const i = P[4 * k + 1], j = P[4 * k + 3];
+      const xa = A.pos, xb = B.pos, ia = 3 * i, jb = 3 * j;
+      const dx = xb[jb] - xa[ia], dy = xb[jb + 1] - xa[ia + 1], dz = xb[jb + 2] - xa[ia + 2];
+      const minD = A.radius + B.radius, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= minD * minD) continue;
+      const wa = A.invMass[i], wb = B.invMass[j], w = wa + wb;
+      const d = Math.sqrt(d2);
+      let nx = 0, ny = 1, nz = 0;
+      if (d > 1e-9) { nx = dx / d; ny = dy / d; nz = dz / d; }
+      const pen = minD - d, corr = pen / w;
+      xa[ia] -= nx * corr * wa; xa[ia + 1] -= ny * corr * wa; xa[ia + 2] -= nz * corr * wa;
+      xb[jb] += nx * corr * wb; xb[jb + 1] += ny * corr * wb; xb[jb + 2] += nz * corr * wb;
+      // трение: гасим относительное касательное смещение за подшаг
+      const pa = A.prev, pb = B.prev;
+      let rx = (xb[jb] - pb[jb]) - (xa[ia] - pa[ia]);
+      let ry = (xb[jb + 1] - pb[jb + 1]) - (xa[ia + 1] - pa[ia + 1]);
+      let rz = (xb[jb + 2] - pb[jb + 2]) - (xa[ia + 2] - pa[ia + 2]);
+      const rn = rx * nx + ry * ny + rz * nz;
+      rx -= rn * nx; ry -= rn * ny; rz -= rn * nz;
+      const rt = Math.sqrt(rx * rx + ry * ry + rz * rz);
+      if (rt > 1e-12) {
+        const f = Math.min(mu * pen / rt, 1) / w;
+        xa[ia] += rx * f * wa; xa[ia + 1] += ry * f * wa; xa[ia + 2] += rz * f * wa;
+        xb[jb] -= rx * f * wb; xb[jb + 1] -= ry * f * wb; xb[jb + 2] -= rz * f * wb;
+      }
+    }
+  }
+}
+
+// ============================================================================
+//  РЕЗКА тела плоскостью n·x = d
+//
+//  1. Знаковые расстояния s_i всех вершин (в текущей, деформированной форме).
+//  2. Привязка (snapping): если ребро пересекается очень близко к вершине
+//     (t < SNAP), вершина сдвигается в точку пересечения вдоль этого ребра —
+//     одновременно в текущей форме и в форме покоя. Это убирает
+//     «иглы»-тетраэдры, которые иначе дали бы нестабильные ограничения.
+//  3. Классификация тетраэдров: целиком «+», целиком «−», рассечённый.
+//     Вершины ровно на плоскости (s=0) дублируются: отдельная копия для «+»
+//     и для «−», иначе куски остались бы сшитыми.
+//  4. Рассечённый тетраэдр ∩ полупространство — выпуклый многогранник.
+//     Его грани: 4 грани тетраэдра, обрезанные алгоритмом Сазерленда–Ходжмана,
+//     плюс сечение (треугольник или четырёхугольник). Многогранник
+//     тетраэдризуется «конусом» из вершины с минимальным индексом (apex):
+//     для каждой грани, не содержащей apex, строим веер треугольников и
+//     соединяем с apex. Четырёхугольники всегда режутся по диагонали из
+//     вершины с минимальным индексом — поэтому соседние тетраэдры, делящие
+//     грань, разбивают её одинаково, и сетка остаётся конформной
+//     (без щелей и висящих граней).
+//  5. Точки пересечения рёбер общие для всех тетраэдров с этим ребром
+//     (кэш по ребру) — с двумя копиями для двух сторон.
+//  6. Компоненты связности: union-find по вершинам тетраэдров. Каждая
+//     компонента — независимое тело (тор, разрезанный поперёк, даёт 2 куска
+//     с одной стороны и т.п.). Форма покоя новых вершин интерполируется,
+//     поэтому кусок «помнит» свою исходную форму.
+//  Поверхность каждого куска заново извлекается из граничных граней —
+//  срез автоматически закрыт «крышкой» из граней новых тетраэдров.
+// ============================================================================
+const Cutter = {
+  SNAP: 0.2,
+
+  cut(body, nx, ny, nz, d) {
+    const N = body.n, pos = body.pos, rest = body.rest, vel = body.vel, T = body.tets, M = body.numTets;
+
+    // 1) знаковые расстояния
+    const sd = new Float64Array(N);
+    let anyP = false, anyN = false;
+    for (let i = 0; i < N; i++) {
+      const s = nx * pos[3 * i] + ny * pos[3 * i + 1] + nz * pos[3 * i + 2] - d;
+      sd[i] = s;
+      if (s > 0) anyP = true; else if (s < 0) anyN = true;
+    }
+    if (!anyP || !anyN) return null;
+
+    // 2) привязка вершин к плоскости
+    const SNAP = this.SNAP, E = body.edges;
+    const snapT = new Float64Array(N).fill(2), snapTo = new Int32Array(N).fill(-1);
+    for (let e = 0; e < body.numEdges; e++) {
+      const a = E[2 * e], b = E[2 * e + 1], sa = sd[a], sb = sd[b];
+      if ((sa > 0 && sb < 0) || (sa < 0 && sb > 0)) {
+        const t = sa / (sa - sb);
+        if (t < SNAP && t < snapT[a]) { snapT[a] = t; snapTo[a] = b; }
+        if (1 - t < SNAP && 1 - t < snapT[b]) { snapT[b] = 1 - t; snapTo[b] = a; }
+      }
+    }
+    const P = Float64Array.from(pos), R = Float64Array.from(rest), V = Float64Array.from(vel);
+    const snapped = new Uint8Array(N);
+    const setSnap = (i, on) => {
+      const b = snapTo[i], t = on ? snapT[i] : 0;
+      for (let k = 0; k < 3; k++) {
+        P[3 * i + k] = pos[3 * i + k] + t * (pos[3 * b + k] - pos[3 * i + k]);
+        R[3 * i + k] = rest[3 * i + k] + t * (rest[3 * b + k] - rest[3 * i + k]);
+        V[3 * i + k] = vel[3 * i + k] + t * (vel[3 * b + k] - vel[3 * i + k]);
+      }
+      snapped[i] = on ? 1 : 0;
+    };
+    for (let i = 0; i < N; i++) if (snapTo[i] >= 0) setSnap(i, true);
+    // привязка не должна сплющивать или выворачивать соседние тетраэдры
+    // (ни в форме покоя, ни в текущей) — иначе отменяем её для этих вершин
+    for (let iter = 0; iter < 4; iter++) {
+      let changed = false;
+      for (let t = 0; t < M; t++) {
+        const a = T[4 * t], b = T[4 * t + 1], c = T[4 * t + 2], e = T[4 * t + 3];
+        if (!(snapped[a] | snapped[b] | snapped[c] | snapped[e])) continue;
+        const d0 = tetVol6(pos, a, b, c, e);
+        if (tetVol6(R, a, b, c, e) > 0.15 * body.restVol6[t] && !(d0 > 0 && tetVol6(P, a, b, c, e) < 0.15 * d0)) continue;
+        for (const v of [a, b, c, e]) if (snapped[v]) { setSnap(v, false); changed = true; }
+      }
+      if (!changed) break;
+    }
+    const sign = new Int8Array(N);
+    for (let i = 0; i < N; i++) {
+      if (snapped[i]) { sd[i] = 0; sign[i] = 0; }
+      else sign[i] = sd[i] > 1e-12 ? 1 : sd[i] < -1e-12 ? -1 : 0;
+    }
+
+    // 3) классификация тетраэдров: 1 / −1 — целиком с одной стороны, 2 — рассечён, 0 — вырожден
+    const cls = new Int8Array(M);
+    let nP = 0, nN = 0, nS = 0;
+    for (let t = 0; t < M; t++) {
+      let hp = false, hn = false;
+      for (let q = 0; q < 4; q++) { const s = sign[T[4 * t + q]]; if (s > 0) hp = true; else if (s < 0) hn = true; }
+      const c = hp && hn ? 2 : hp ? 1 : hn ? -1 : 0;
+      cls[t] = c;
+      if (c === 1) nP++; else if (c === -1) nN++; else if (c === 2) nS++;
+    }
+    if (nP + nS === 0 || nN + nS === 0) return null;
+
+    // 4) новые вершины (ленивое создание, общие для соседних тетраэдров)
+    const outP = [], outR = [], outV = [];
+    let count = 0;
+    const mapP = new Int32Array(N).fill(-1), mapN = new Int32Array(N).fill(-1);
+    const vid = (i, side) => {
+      const map = side > 0 ? mapP : mapN;
+      let id = map[i];
+      if (id < 0) {
+        const j = 3 * i;
+        outP.push(P[j], P[j + 1], P[j + 2]); outR.push(R[j], R[j + 1], R[j + 2]); outV.push(V[j], V[j + 1], V[j + 2]);
+        id = map[i] = count++;
+      }
+      return id;
+    };
+    const edgeIds = new Map();
+    const eid = (a, b, side) => {
+      let lo = a, hi = b;
+      if (lo > hi) { lo = b; hi = a; }
+      const key = lo * N + hi;
+      let id = edgeIds.get(key);
+      if (id === undefined) {
+        const t = sd[lo] / (sd[lo] - sd[hi]), jl = 3 * lo, jh = 3 * hi;
+        id = count;
+        for (let copy = 0; copy < 2; copy++) {        // копия для «+» (id) и для «−» (id+1)
+          for (let k = 0; k < 3; k++) {
+            outP.push(P[jl + k] + t * (P[jh + k] - P[jl + k]));
+            outR.push(R[jl + k] + t * (R[jh + k] - R[jl + k]));
+            outV.push(V[jl + k] + t * (V[jh + k] - V[jl + k]));
+          }
+          count++;
+        }
+        edgeIds.set(key, id);
+      }
+      return side > 0 ? id : id + 1;
+    };
+
+    const outT = [], outParent = [];                 // outParent < 0 — тетраэдр перенесён целиком
+    const FACES = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]];
+    const q = [0, 0, 0, 0];
+
+    const splitTet = (side, parentVol6) => {
+      const faces = [];
+      // обрезка граней тетраэдра (Сазерленд–Ходжман)
+      for (const f of FACES) {
+        const poly = [];
+        for (let k = 0; k < 3; k++) {
+          const a = q[f[k]], b = q[f[(k + 1) % 3]];
+          const sa = sign[a] * side, sb = sign[b] * side;
+          if (sa >= 0) poly.push(vid(a, side));
+          if (sa * sb < 0) poly.push(eid(a, b, side));
+        }
+        if (poly.length >= 3) faces.push(poly);
+      }
+      // сечение плоскостью (крышка)
+      const pos4 = [], neg4 = [], cap = [];
+      for (let k = 0; k < 4; k++) {
+        const s = sign[q[k]];
+        if (s > 0) pos4.push(q[k]); else if (s < 0) neg4.push(q[k]); else cap.push(vid(q[k], side));
+      }
+      if (pos4.length === 2 && neg4.length === 2) {   // четырёхугольник: обход по циклу
+        cap.push(eid(pos4[0], neg4[0], side), eid(pos4[0], neg4[1], side),
+                 eid(pos4[1], neg4[1], side), eid(pos4[1], neg4[0], side));
+      } else {
+        for (const a of pos4) for (const b of neg4) cap.push(eid(a, b, side));
+      }
+      if (cap.length >= 3) faces.push(cap);
+      // конус из вершины с минимальным индексом
+      let apex = Infinity;
+      for (const f of faces) for (const v of f) if (v < apex) apex = v;
+      for (const f of faces) {
+        if (f.includes(apex)) continue;
+        const L = f.length;
+        let m = 0;
+        for (let k = 1; k < L; k++) if (f[k] < f[m]) m = k;
+        for (let k = 1; k < L - 1; k++) {
+          outT.push(apex, f[m], f[(m + k) % L], f[(m + k + 1) % L]);
+          outParent.push(parentVol6);
+        }
+      }
+    };
+
+    for (let t = 0; t < M; t++) {
+      const c = cls[t];
+      if (c === 0) continue;
+      q[0] = T[4 * t]; q[1] = T[4 * t + 1]; q[2] = T[4 * t + 2]; q[3] = T[4 * t + 3];
+      const pv = body.restVol6[t];
+      if (c === 1 || c === -1) {
+        outT.push(vid(q[0], c), vid(q[1], c), vid(q[2], c), vid(q[3], c));
+        outParent.push(-pv);
+      } else {
+        splitTet(1, pv);
+        splitTet(-1, pv);
+      }
+    }
+
+    // 5) ориентация новых подтетраэдров по форме покоя + отбраковка вырожденных
+    const numOut = outT.length / 4;
+    const keep = new Uint8Array(numOut), vol6 = new Float64Array(numOut);
+    for (let t = 0; t < numOut; t++) {
+      let v6 = tetVol6(outR, outT[4 * t], outT[4 * t + 1], outT[4 * t + 2], outT[4 * t + 3]);
+      if (v6 < 0 && outParent[t] > 0) { const tmp = outT[4 * t + 2]; outT[4 * t + 2] = outT[4 * t + 3]; outT[4 * t + 3] = tmp; v6 = -v6; }
+      vol6[t] = v6;
+      keep[t] = v6 > 1e-5 * Math.abs(outParent[t]) ? 1 : 0;
+    }
+
+    // 6) компоненты связности (union-find по вершинам)
+    const uf = new Int32Array(count);
+    for (let i = 0; i < count; i++) uf[i] = i;
+    const find = (x) => { while (uf[x] !== x) { uf[x] = uf[uf[x]]; x = uf[x]; } return x; };
+    const unite = (a, b) => { a = find(a); b = find(b); if (a !== b) uf[a] = b; };
+    for (let t = 0; t < numOut; t++) {
+      if (!keep[t]) continue;
+      const a = outT[4 * t];
+      unite(a, outT[4 * t + 1]); unite(a, outT[4 * t + 2]); unite(a, outT[4 * t + 3]);
+    }
+    const compIndex = new Map(), comps = [];
+    for (let t = 0; t < numOut; t++) {
+      if (!keep[t]) continue;
+      const r = find(outT[4 * t]);
+      let ci = compIndex.get(r);
+      if (ci === undefined) { ci = comps.length; compIndex.set(r, ci); comps.push({ tets: [], vol6: 0 }); }
+      comps[ci].tets.push(t);
+      comps[ci].vol6 += vol6[t];
+    }
+
+    // 7) сборка кусков с локальной нумерацией вершин
+    const local = new Int32Array(count).fill(-1);
+    const pieces = [];
+    for (const comp of comps) {
+      const verts = [];
+      const tets = new Int32Array(comp.tets.length * 4);
+      let k = 0;
+      for (const t of comp.tets) {
+        for (let qq = 0; qq < 4; qq++) {
+          const g = outT[4 * t + qq];
+          if (local[g] < 0) { local[g] = verts.length; verts.push(g); }
+          tets[k++] = local[g];
+        }
+      }
+      const nv = verts.length;
+      const pp = new Float64Array(3 * nv), rr = new Float64Array(3 * nv), vv = new Float64Array(3 * nv);
+      let sideSum = 0;
+      for (let i = 0; i < nv; i++) {
+        const g = verts[i];
+        for (let a = 0; a < 3; a++) { pp[3 * i + a] = outP[3 * g + a]; rr[3 * i + a] = outR[3 * g + a]; vv[3 * i + a] = outV[3 * g + a]; }
+        sideSum += nx * pp[3 * i] + ny * pp[3 * i + 1] + nz * pp[3 * i + 2] - d;
+        local[g] = -1;
+      }
+      pieces.push({ pos: pp, rest: rr, vel: vv, tets, side: sideSum >= 0 ? 1 : -1, volume: comp.vol6 / 6 });
+    }
+    return pieces.length ? pieces : null;
+  },
+};
+
+// ============================================================================
+//  Гладкая поверхность: граница тет-сетки + подразбиение Loop.
+//  Схема Loop линейна по исходным вершинам, поэтому «трафарет» весов
+//  (CSR: индексы + веса) строится один раз при смене топологии, а каждый кадр
+//  — только умножение разреженной матрицы на позиции частиц, пересчёт
+//  нормалей и небольшое «раздувание» на радиус контакта частиц.
+// ============================================================================
+function buildLoopLevel(nv, tris) {
+  const nt = tris.length / 3;
+  const edgeIndex = new Map();
+  const eA = [], eB = [], eO1 = [], eO2 = [], eCnt = [];
+  const triEdges = new Int32Array(nt * 3);
+  for (let t = 0; t < nt; t++) {
+    for (let k = 0; k < 3; k++) {
+      const a = tris[3 * t + k], b = tris[3 * t + (k + 1) % 3], c = tris[3 * t + (k + 2) % 3];
+      const key = a < b ? a * nv + b : b * nv + a;
+      let e = edgeIndex.get(key);
+      if (e === undefined) {
+        e = eA.length; edgeIndex.set(key, e);
+        eA.push(a); eB.push(b); eO1.push(c); eO2.push(-1); eCnt.push(1);
+      } else {
+        if (eCnt[e] === 1) eO2[e] = c;
+        eCnt[e]++;
+      }
+      triEdges[3 * t + k] = e;
+    }
+  }
+  const ne = eA.length;
+  const deg = new Int32Array(nv), crease = new Uint8Array(nv);
+  for (let e = 0; e < ne; e++) {
+    deg[eA[e]]++; deg[eB[e]]++;
+    if (eCnt[e] !== 2) crease[eA[e]] = crease[eB[e]] = 1;   // неманифолдное ребро — не сглаживаем
+  }
+  const adjStart = new Int32Array(nv + 1);
+  for (let v = 0; v < nv; v++) adjStart[v + 1] = adjStart[v] + deg[v];
+  const adj = new Int32Array(2 * ne), fill = adjStart.slice(0, nv);
+  for (let e = 0; e < ne; e++) { adj[fill[eA[e]]++] = eB[e]; adj[fill[eB[e]]++] = eA[e]; }
+
+  const nf = nv + ne;
+  const start = new Int32Array(nf + 1);
+  for (let v = 0; v < nv; v++) start[v + 1] = start[v] + (crease[v] || deg[v] < 3 ? 1 : deg[v] + 1);
+  for (let e = 0; e < ne; e++) start[nv + e + 1] = start[nv + e] + (eCnt[e] === 2 ? 4 : 2);
+  const idx = new Int32Array(start[nf]), w = new Float64Array(start[nf]);
+  for (let v = 0; v < nv; v++) {
+    let k = start[v];
+    if (crease[v] || deg[v] < 3) { idx[k] = v; w[k] = 1; continue; }
+    const n = deg[v], beta = n === 3 ? 3 / 16 : 3 / (8 * n);
+    idx[k] = v; w[k++] = 1 - n * beta;
+    for (let a = adjStart[v]; a < adjStart[v + 1]; a++) { idx[k] = adj[a]; w[k++] = beta; }
+  }
+  for (let e = 0; e < ne; e++) {
+    let k = start[nv + e];
+    if (eCnt[e] === 2) {
+      idx[k] = eA[e]; w[k++] = 3 / 8; idx[k] = eB[e]; w[k++] = 3 / 8;
+      idx[k] = eO1[e]; w[k++] = 1 / 8; idx[k] = eO2[e]; w[k++] = 1 / 8;
+    } else {
+      idx[k] = eA[e]; w[k++] = 0.5; idx[k] = eB[e]; w[k++] = 0.5;
+    }
+  }
+  const out = new Int32Array(nt * 12);
+  for (let t = 0; t < nt; t++) {
+    const a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2];
+    const ab = nv + triEdges[3 * t], bc = nv + triEdges[3 * t + 1], ca = nv + triEdges[3 * t + 2];
+    out.set([a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca], 12 * t);
+  }
+  return { nFine: nf, start, idx, w, tris: out };
+}
+
+class SurfaceMesh {
+  constructor(body, levels = 2) {
+    this.body = body;
+    const tris = body.surfTris;
+    const map = new Int32Array(body.n).fill(-1), verts = [];
+    const lt = new Int32Array(tris.length);
+    for (let k = 0; k < tris.length; k++) {
+      const p = tris[k];
+      if (map[p] < 0) { map[p] = verts.length; verts.push(p); }
+      lt[k] = map[p];
+    }
+    this.baseVerts = Int32Array.from(verts);
+    this.levels = [];
+    let nv = verts.length, cur = lt;
+    this.buffers = [new Float64Array(3 * nv)];
+    for (let l = 0; l < levels; l++) {
+      const L = buildLoopLevel(nv, cur);
+      this.levels.push(L);
+      nv = L.nFine; cur = L.tris;
+      this.buffers.push(new Float64Array(3 * nv));
+    }
+    this.numVerts = nv;
+    this.indices = Uint32Array.from(cur);
+    this.positions = new Float32Array(3 * nv);
+    this.normals = new Float32Array(3 * nv);
+    this.center = [0, 0, 0];
+    this.radius = 0;
+  }
+
+  update(scale = 1) {
+    const b = this.body, X = b.pos, bv = this.baseVerts, B0 = this.buffers[0];
+    for (let k = 0; k < bv.length; k++) {
+      const j = 3 * bv[k];
+      B0[3 * k] = X[j]; B0[3 * k + 1] = X[j + 1]; B0[3 * k + 2] = X[j + 2];
+    }
+    for (let l = 0; l < this.levels.length; l++) {
+      const L = this.levels[l], src = this.buffers[l], dst = this.buffers[l + 1];
+      const st = L.start, id = L.idx, w = L.w;
+      for (let f = 0; f < L.nFine; f++) {
+        let x = 0, y = 0, z = 0;
+        for (let k = st[f], e = st[f + 1]; k < e; k++) {
+          const i = 3 * id[k], wk = w[k];
+          x += wk * src[i]; y += wk * src[i + 1]; z += wk * src[i + 2];
+        }
+        dst[3 * f] = x; dst[3 * f + 1] = y; dst[3 * f + 2] = z;
+      }
+    }
+    const Pp = this.buffers[this.buffers.length - 1], I = this.indices, Nn = this.normals, nv = this.numVerts;
+    Nn.fill(0);
+    for (let t = 0; t < I.length; t += 3) {
+      const a = 3 * I[t], bb = 3 * I[t + 1], c = 3 * I[t + 2];
+      const ux = Pp[bb] - Pp[a], uy = Pp[bb + 1] - Pp[a + 1], uz = Pp[bb + 2] - Pp[a + 2];
+      const vx = Pp[c] - Pp[a], vy = Pp[c + 1] - Pp[a + 1], vz = Pp[c + 2] - Pp[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      Nn[a] += nx; Nn[a + 1] += ny; Nn[a + 2] += nz;
+      Nn[bb] += nx; Nn[bb + 1] += ny; Nn[bb + 2] += nz;
+      Nn[c] += nx; Nn[c + 1] += ny; Nn[c + 2] += nz;
+    }
+    // «раздуваем» поверхность на радиус частиц: видимые поверхности касаются
+    // ровно тогда, когда касаются контактные сферы частиц
+    const r = b.radius;
+    let cx = 0, cy = 0, cz = 0;
+    for (let v = 0; v < nv; v++) {
+      const j = 3 * v;
+      const l = Math.sqrt(Nn[j] * Nn[j] + Nn[j + 1] * Nn[j + 1] + Nn[j + 2] * Nn[j + 2]) || 1;
+      Nn[j] /= l; Nn[j + 1] /= l; Nn[j + 2] /= l;
+      cx += Pp[j]; cy += Pp[j + 1]; cz += Pp[j + 2];
+    }
+    cx /= nv; cy /= nv; cz /= nv;
+    const Pos = this.positions;
+    let r2 = 0;
+    for (let v = 0; v < nv; v++) {
+      const j = 3 * v;
+      const x = cx + (Pp[j] + Nn[j] * r - cx) * scale;
+      const y = cy + (Pp[j + 1] + Nn[j + 1] * r - cy) * scale;
+      const z = cz + (Pp[j + 2] + Nn[j + 2] * r - cz) * scale;
+      Pos[j] = x; Pos[j + 1] = y; Pos[j + 2] = z;
+      const dd = (x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2;
+      if (dd > r2) r2 = dd;
+    }
+    this.center[0] = cx; this.center[1] = cy; this.center[2] = cz;
+    this.radius = Math.sqrt(r2);
+  }
+
+  // Луч–треугольник (Мёллер–Трумбор); возвращает расстояние или Infinity
+  raycast(ox, oy, oz, dx, dy, dz) {
+    const cx = this.center[0] - ox, cy = this.center[1] - oy, cz = this.center[2] - oz;
+    const tca = cx * dx + cy * dy + cz * dz;
+    if (cx * cx + cy * cy + cz * cz - tca * tca > this.radius * this.radius) return Infinity;
+    const P = this.positions, I = this.indices;
+    let best = Infinity;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = 3 * I[t], b = 3 * I[t + 1], c = 3 * I[t + 2];
+      const e1x = P[b] - P[a], e1y = P[b + 1] - P[a + 1], e1z = P[b + 2] - P[a + 2];
+      const e2x = P[c] - P[a], e2y = P[c + 1] - P[a + 1], e2z = P[c + 2] - P[a + 2];
+      const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+      const det = e1x * px + e1y * py + e1z * pz;
+      if (Math.abs(det) < 1e-12) continue;
+      const inv = 1 / det;
+      const tx = ox - P[a], ty = oy - P[a + 1], tz = oz - P[a + 2];
+      const u = (tx * px + ty * py + tz * pz) * inv;
+      if (u < 0 || u > 1) continue;
+      const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+      const v = (dx * qx + dy * qy + dz * qz) * inv;
+      if (v < 0 || u + v > 1) continue;
+      const tt = (e2x * qx + e2y * qy + e2z * qz) * inv;
+      if (tt > 1e-6 && tt < best) best = tt;
+    }
+    return best;
+  }
+}
+
+// ============================================================================
+//  Мир: фиксированный шаг физики с подшагами, захват, резка, параметры.
+// ============================================================================
+const DEFAULT_PARAMS = {
+  stiffness: 0.4,    // 0…1 → E = 30·10^(2s)
+  volume: 0.65,      // 0…1 → κ = 10^(3v−1) (0 — без ограничения объёма)
+  damping: 15,       // τ, мс — вязкость Рэлея (гашение колебаний)
+  gravity: 9.81,     // м/с²
+  friction: 0.7,     // μ (пол, стенки, тела)
+  grab: 0.5,         // 0…1 → собственная частота пружины захвата
+  substeps: 10,      // подшагов на 1/60 с
+};
+
+const ParamMap = {
+  E: (s) => 30 * Math.pow(10, 2 * s),
+  kappa: (v) => (v <= 0.001 ? 0 : Math.pow(10, 3 * v - 1)),
+  grabOmega: (s) => 5 + 45 * s * s,
+};
+
+class PhysicsWorld {
+  constructor() {
+    this.bodies = [];
+    this.params = { ...DEFAULT_PARAMS };
+    this.bounds = { radius: 4.2, floor: 0, ceiling: 14 };
+    this.collision = new CollisionSystem();
+    this.grab = null;
+    this.acc = 0;
+    this.paused = false;
+    this.simTime = 0;
+  }
+
+  addBody(b) { this.bodies.push(b); this.collision.dirty = true; return b; }
+
+  removeBody(b) {
+    const i = this.bodies.indexOf(b);
+    if (i >= 0) this.bodies.splice(i, 1);
+    if (this.grab && this.grab.body === b) this.grab = null;
+    this.collision.dirty = true;
+  }
+
+  clear() { this.bodies.length = 0; this.grab = null; this.collision.dirty = true; }
+
+  stats() {
+    let particles = 0, tets = 0, alive = 0;
+    for (const b of this.bodies) { particles += b.n; tets += b.numTets; if (!b.dying) alive++; }
+    return { bodies: alive, particles, tets };
+  }
+
+  // Фиксированный подшаг h = 1/(60·substeps), не зависит от FPS; накопитель
+  // переносит остаток времени. Если кадр слишком долгий — ограничиваем число
+  // подшагов (симуляция замедляется, но не уходит в «спираль смерти»).
+  advance(dt) {
+    dt = Math.min(dt, 0.1);
+    for (let i = this.bodies.length - 1; i >= 0; i--) {
+      const b = this.bodies[i];
+      if (b.dying > 0) { b.dying -= dt; if (b.dying <= 0) this.removeBody(b); }
+    }
+    if (this.paused) { this.acc = 0; return 0; }
+    const h = 1 / (60 * this.params.substeps);
+    this.acc += dt;
+    let steps = Math.floor(this.acc / h);
+    const maxSteps = this.params.substeps * 4;
+    if (steps > maxSteps) { steps = maxSteps; this.acc = 0; } else this.acc -= steps * h;
+    for (let s = 0; s < steps; s++) this.substep(h);
+    this._sanitize();
+    return steps;
+  }
+
+  substep(h) {
+    const P = this.params, bodies = this.bodies, nb = bodies.length;
+    const E = ParamMap.E(P.stiffness), kappa = ParamMap.kappa(P.volume);
+    const alphaEdge = 1 / (E * h * h);
+    const alphaVol = kappa > 0 ? 36 / (kappa * E * h * h) : 0;
+
+    const col = this.collision;
+    if (col.dirty || ++col.age >= COLLISION_REFRESH) {
+      let vmax = 0;
+      for (let b = 0; b < nb; b++) vmax = Math.max(vmax, bodies[b].maxSpeed);
+      col.rebuild(bodies, clamp(vmax * h * COLLISION_REFRESH * 1.5 + 0.01, 0.015, 0.2));
+    }
+    for (let b = 0; b < nb; b++) bodies[b].integrate(h, P.gravity);
+    if (this.grab) this._solveGrab(h);
+    const gamma = P.damping / 1000 / h;              // τ задаётся в миллисекундах
+    for (let b = 0; b < nb; b++) {
+      bodies[b].solveEdges(alphaEdge, gamma);
+      if (kappa > 0) bodies[b].solveVolumes(alphaVol);
+    }
+    col.solve(bodies, P.friction);
+    for (let b = 0; b < nb; b++) bodies[b].solveBounds(this.bounds, P.friction);
+    const damp = 1 - Math.exp(-RIGID_DAMPING * h), roll = 1 - Math.exp(-ROLL_RESISTANCE * h);
+    for (let b = 0; b < nb; b++) bodies[b].updateVelocities(h, damp, roll);
+    if (this.grab) this._dampGrab(h);
+    this.simTime += h;
+  }
+
+  // ------------------------------------------------------------- захват
+  startGrab(body, hx, hy, hz) {
+    const R = Math.max(2.4 * body.h, 0.2), x = body.pos;
+    const ids = [], wr = [];
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < body.n; i++) {
+      const d = Math.hypot(x[3 * i] - hx, x[3 * i + 1] - hy, x[3 * i + 2] - hz);
+      if (d < bestD) { bestD = d; best = i; }
+      if (d < R) { ids.push(i); wr.push(1 - (d * d) / (R * R)); }
+    }
+    if (!ids.length) { ids.push(best); wr.push(1); }
+    const sum = wr.reduce((a, b) => a + b, 0);
+    const off = new Float64Array(3 * ids.length);
+    ids.forEach((i, k) => { off[3 * k] = x[3 * i] - hx; off[3 * k + 1] = x[3 * i + 1] - hy; off[3 * k + 2] = x[3 * i + 2] - hz; });
+    this.grab = {
+      body, count: ids.length, ids: Int32Array.from(ids), wr: Float64Array.from(wr),
+      wn: Float64Array.from(wr, (v) => v / sum), off,
+      target: [hx, hy, hz], cur: [hx, hy, hz], curVel: [0, 0, 0],
+    };
+    return this.grab;
+  }
+
+  setGrabTarget(x, y, z) {
+    if (!this.grab) return;
+    const maxR = this.bounds.radius - 0.35, r = Math.hypot(x, z);
+    if (r > maxR) { x *= maxR / r; z *= maxR / r; }
+    this.grab.target[0] = x; this.grab.target[1] = clamp(y, 0.1, 7); this.grab.target[2] = z;
+  }
+
+  endGrab() { this.grab = null; }
+
+  // Мягкая XPBD-пружина нулевой длины между каждой захваченной частицей и
+  // точкой под курсором. Жёсткость K = M·ω² распределена по весам частиц,
+  // поэтому лёгкие и тяжёлые тела следуют за курсором одинаково «упруго».
+  _solveGrab(h) {
+    const g = this.grab, b = g.body, x = b.pos, w = b.invMass;
+    const a = 1 - Math.exp(-h * 22);                 // сглаживание рывков курсора
+    for (let k = 0; k < 3; k++) {
+      const prev = g.cur[k];
+      g.cur[k] += (g.target[k] - g.cur[k]) * a;
+      g.curVel[k] = (g.cur[k] - prev) / h;
+    }
+    const om = ParamMap.grabOmega(this.params.grab);
+    const K = b.totalMass * om * om, maxStep = 0.02;
+    for (let k = 0; k < g.count; k++) {
+      const i = g.ids[k], j = 3 * i;
+      const dx = x[j] - (g.cur[0] + g.off[3 * k]);
+      const dy = x[j + 1] - (g.cur[1] + g.off[3 * k + 1]);
+      const dz = x[j + 2] - (g.cur[2] + g.off[3 * k + 2]);
+      const C = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (C < 1e-9) continue;
+      const alpha = 1 / (K * g.wn[k] * h * h);
+      const s = Math.min(C * w[i] / (w[i] + alpha), maxStep) / C;
+      x[j] -= dx * s; x[j + 1] -= dy * s; x[j + 2] -= dz * s;
+    }
+  }
+
+  _dampGrab(h) {
+    const g = this.grab, v = g.body.vel;
+    for (let k = 0; k < g.count; k++) {
+      const j = 3 * g.ids[k], f = 1 - Math.exp(-h * 8 * g.wr[k]);
+      v[j] += (g.curVel[0] - v[j]) * f; v[j + 1] += (g.curVel[1] - v[j + 1]) * f; v[j + 2] += (g.curVel[2] - v[j + 2]) * f;
+    }
+  }
+
+  // ------------------------------------------------------------- резка
+  cut(targets, nx, ny, nz, d) {
+    const res = { cut: 0, pieces: 0, crumbs: 0, newBodies: [] };
+    for (const body of targets) {
+      if (body.dying > 0 || !this.bodies.includes(body)) continue;
+      const parts = Cutter.cut(body, nx, ny, nz, d);
+      if (!parts) continue;
+      this.removeBody(body);
+      res.cut++;
+      const sep = body.radius * 1.15, kick = 0.45;
+      for (const p of parts) {
+        const sx = nx * p.side, sy = ny * p.side, sz = nz * p.side;
+        for (let i = 0; i < p.pos.length; i += 3) {
+          p.pos[i] += sx * sep; p.pos[i + 1] += sy * sep; p.pos[i + 2] += sz * sep;
+          p.vel[i] += sx * kick; p.vel[i + 1] += sy * kick; p.vel[i + 2] += sz * kick;
+        }
+        const nb = new SoftBody({ pos: p.pos, rest: p.rest, vel: p.vel, tets: p.tets, h: body.h, color: body.color, shape: body.shape });
+        if (p.volume < MIN_PIECE_VOLUME || nb.numTets < 6) { nb.dying = DYING_TIME; res.crumbs++; }
+        else res.pieces++;
+        this.addBody(nb);
+        res.newBodies.push(nb);
+      }
+    }
+    this._enforceLimits();
+    return res;
+  }
+
+  // Слишком много тел/частиц — растворяем самые мелкие куски.
+  _enforceLimits() {
+    const alive = this.bodies.filter((b) => !b.dying).sort((a, b) => a.restVolume - b.restVolume);
+    let particles = this.bodies.reduce((s, b) => s + b.n, 0), count = alive.length;
+    for (const b of alive) {
+      if (count <= MAX_BODIES && particles <= MAX_PARTICLES) break;
+      b.dying = DYING_TIME; count--; particles -= b.n;
+    }
+  }
+
+  // Защита от NaN и улетевших тел.
+  _sanitize() {
+    for (let i = this.bodies.length - 1; i >= 0; i--) {
+      const b = this.bodies[i], x = b.pos;
+      let s = 0;
+      for (let j = 0; j < x.length; j += 3) s += x[j + 1];
+      if (!Number.isFinite(s) || s / b.n < -5) this.removeBody(b);
+    }
+  }
+}
+/* ==CORE-END== */
+
+// ============================================================================
+//  РЕНДЕР: сцена, свет, материал желе, меши тел
+// ============================================================================
+function makeGradientTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, '#b9cbff');
+  grd.addColorStop(0.5, '#ecdcff');
+  grd.addColorStop(1, '#ffe3d8');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 4, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makePlateTexture(maxAniso) {
+  const S = 1024, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const base = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  base.addColorStop(0, '#fffefb'); base.addColorStop(1, '#f4ece4');
+  g.fillStyle = base; g.fillRect(0, 0, S, S);
+  // горошек — чтобы была видна рефракция сквозь желе
+  const step = 52;
+  for (let y = step / 2; y < S; y += step) {
+    for (let x = (Math.round(y / step) % 2) * step / 2 + step / 4; x < S; x += step) {
+      const r = Math.hypot(x - S / 2, y - S / 2);
+      if (r > S * 0.45) continue;
+      g.fillStyle = r < S * 0.2 ? 'rgba(255, 92, 150, 0.20)' : 'rgba(123, 92, 255, 0.16)';
+      g.beginPath(); g.arc(x, y, 6.5, 0, Math.PI * 2); g.fill();
+    }
+  }
+  g.lineWidth = 5; g.strokeStyle = 'rgba(214, 166, 84, 0.65)';
+  g.beginPath(); g.arc(S / 2, S / 2, S * 0.475, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 2;
+  g.beginPath(); g.arc(S / 2, S / 2, S * 0.462, 0, Math.PI * 2); g.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  return tex;
+}
+
+class JellyView {
+  constructor(body, material, levels) {
+    this.body = body;
+    this.surface = new SurfaceMesh(body, levels);
+    const g = new THREE.BufferGeometry();
+    this.posAttr = new THREE.BufferAttribute(this.surface.positions, 3).setUsage(THREE.DynamicDrawUsage);
+    this.nrmAttr = new THREE.BufferAttribute(this.surface.normals, 3).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.posAttr);
+    g.setAttribute('normal', this.nrmAttr);
+    g.setIndex(new THREE.BufferAttribute(this.surface.indices, 1));
+    this.mesh = new THREE.Mesh(g, material);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    this.mesh.frustumCulled = false;
+    this.update();
+  }
+
+  update() {
+    const b = this.body;
+    const s = b.dying > 0 ? Math.max(b.dying / DYING_TIME, 0.001) : 1;
+    this.surface.update(s);
+    this.posAttr.needsUpdate = true;
+    this.nrmAttr.needsUpdate = true;
+  }
+
+  dispose() { this.mesh.geometry.dispose(); }
+}
+
+class JellyRenderer {
+  constructor(container) {
+    const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    r.setSize(window.innerWidth, window.innerHeight);
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.0;
+    container.appendChild(r.domElement);
+    this.domElement = r.domElement;
+
+    const scene = this.scene = new THREE.Scene();
+    scene.background = makeGradientTexture();
+    scene.fog = new THREE.Fog('#efe2fb', 22, 48);
+    const pmrem = new THREE.PMREMGenerator(r);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.6;
+
+    this.camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 120);
+    this.homePos = new THREE.Vector3(0, 5.6, 9.4);
+    this.homeTarget = new THREE.Vector3(0, 0.55, 0);
+    this.camera.position.copy(this.homePos);
+    this.camera.lookAt(this.homeTarget);
+
+    this._lights();
+    this._arena(r.capabilities.getMaxAnisotropy());
+
+    this.materials = new Map();
+    this.views = new Map();
+    this.levels = 2;
+    this._stamp = 0;
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  _lights() {
+    const s = this.scene;
+    s.add(new THREE.HemisphereLight('#fff6ff', '#d4c4ff', 1.0));
+    const key = new THREE.DirectionalLight('#fff3e6', 2.5);
+    key.position.set(4.5, 10, 5.5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    const sc = key.shadow.camera;
+    sc.left = -6.5; sc.right = 6.5; sc.top = 6.5; sc.bottom = -6.5; sc.near = 2; sc.far = 30;
+    key.shadow.bias = -0.0004;
+    key.shadow.normalBias = 0.03;
+    key.shadow.intensity = 0.75;
+    s.add(key);
+    const rim = new THREE.DirectionalLight('#c4d8ff', 1.4);
+    rim.position.set(-6, 5, -7);
+    s.add(rim);
+  }
+
+  _arena(maxAniso) {
+    const s = this.scene, R = 4.2;
+    // пол вокруг
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 64), new THREE.MeshStandardMaterial({ color: '#e6d9fb', roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.13;
+    ground.receiveShadow = true;
+    s.add(ground);
+    // тарелка: дно + бортик (поверхность вращения)
+    const plateMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', map: makePlateTexture(maxAniso), roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.2 });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(R + 0.02, 128), plateMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.receiveShadow = true;
+    s.add(disc);
+    const prof = [[R, 0], [R + 0.13, 0.03], [R + 0.25, 0.12], [R + 0.36, 0.25], [R + 0.42, 0.33], [R + 0.47, 0.36],
+      [R + 0.52, 0.34], [R + 0.52, 0.28], [R + 0.38, 0.06], [R + 0.1, -0.1], [R - 0.3, -0.12], [0, -0.12]]
+      .map(([x, y]) => new THREE.Vector2(x, y));
+    const rim = new THREE.Mesh(new THREE.LatheGeometry(prof, 128),
+      new THREE.MeshPhysicalMaterial({ color: '#fbf7f3', roughness: 0.3, clearcoat: 0.7, clearcoatRoughness: 0.15 }));
+    rim.castShadow = true;
+    rim.receiveShadow = true;
+    s.add(rim);
+    // стеклянная стенка (физическая граница арены)
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.03, R + 0.03, 1.6, 128, 1, true),
+      new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.08, roughness: 0.05,
+        side: THREE.DoubleSide, depthWrite: false }));
+    glass.position.y = 0.8;
+    s.add(glass);
+    const edge = new THREE.Mesh(new THREE.TorusGeometry(R + 0.03, 0.018, 8, 160),
+      new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, roughness: 0.2 }));
+    edge.rotation.x = Math.PI / 2;
+    edge.position.y = 1.6;
+    s.add(edge);
+  }
+
+  // Материал желе: прозрачность через transmission (рефракция фона),
+  // затухание цвета в толще (attenuation), лак (clearcoat) для бликов и
+  // имитация подповерхностного рассеивания — мягкое «свечение» к краям силуэта.
+  material(hex) {
+    let m = this.materials.get(hex);
+    if (m) return m;
+    const base = new THREE.Color(hex);
+    const tint = base.clone().lerp(new THREE.Color('#ffffff'), 0.3);
+    m = new THREE.MeshPhysicalMaterial({
+      color: tint, roughness: 0.1, metalness: 0,
+      transmission: 0.9, thickness: 0.85, ior: 1.34,
+      attenuationColor: base, attenuationDistance: 0.5,
+      clearcoat: 1, clearcoatRoughness: 0.05,
+      specularIntensity: 1,
+      emissive: base, emissiveIntensity: 0.05,
+    });
+    const sss = { value: base.clone().multiplyScalar(0.55) };
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms.uSSS = sss;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform vec3 uSSS;')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          {
+            // псевдо-SSS: свет «расползается» внутри и сильнее виден у краёв
+            float ndv = saturate( dot( normal, normalize( vViewPosition ) ) );
+            totalEmissiveRadiance += uSSS * ( 0.12 + 0.9 * pow( 1.0 - ndv, 2.2 ) );
+          }`);
+    };
+    this.materials.set(hex, m);
+    return m;
+  }
+
+  setLevels(levels) {
+    if (levels === this.levels) return;
+    this.levels = levels;
+    for (const v of this.views.values()) { this.scene.remove(v.mesh); v.dispose(); }
+    this.views.clear();
+  }
+
+  // Синхронизация мешей со списком тел мира (новые куски → новые меши).
+  sync(world) {
+    const stamp = ++this._stamp;
+    for (const b of world.bodies) {
+      let v = this.views.get(b.id);
+      if (!v) {
+        v = new JellyView(b, this.material(b.color), this.levels);
+        this.views.set(b.id, v);
+        this.scene.add(v.mesh);
+      } else v.update();
+      v.stamp = stamp;
+    }
+    for (const [id, v] of this.views) {
+      if (v.stamp !== stamp) { this.scene.remove(v.mesh); v.dispose(); this.views.delete(id); }
+    }
+  }
+
+  pick(ray) {
+    const o = ray.origin, d = ray.direction;
+    let best = null;
+    for (const v of this.views.values()) {
+      if (v.body.dying > 0) continue;
+      const t = v.surface.raycast(o.x, o.y, o.z, d.x, d.y, d.z);
+      if (t < Infinity && (!best || t < best.t)) best = { t, body: v.body };
+    }
+    if (best) best.point = ray.at(best.t, new THREE.Vector3());
+    return best;
+  }
+
+  bodiesHitBy(ray, set) {
+    const o = ray.origin, d = ray.direction;
+    for (const v of this.views.values()) {
+      if (v.body.dying > 0 || set.has(v.body)) continue;
+      if (v.surface.raycast(o.x, o.y, o.z, d.x, d.y, d.z) < Infinity) set.add(v.body);
+    }
+  }
+
+  resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+  }
+
+  render() { this.renderer.render(this.scene, this.camera); }
+}
+
+// ============================================================================
+//  ВВОД: перетаскивание, разрез, камера. Обработчики регистрируются ДО
+//  OrbitControls, поэтому при захвате желе мы успеваем выключить камеру.
+//  Тянуть: ЛКМ/палец по желе — захват; по пустоте — вращение камеры.
+//  Резать: ЛКМ/палец — линия разреза; камера: ПКМ/СКМ/колесо/два пальца.
+// ============================================================================
+class InputController {
+  constructor(app) {
+    this.app = app;
+    this.canvas = app.view.domElement;
+    this.mode = 'drag';
+    this.active = null;
+    this.pointers = new Set();
+    this.raycaster = new THREE.Raycaster();
+    this.ndc = new THREE.Vector2();
+    this.dragPlane = new THREE.Plane();
+    this.hover = { x: 0, y: 0, dirty: false, mouse: false };
+    this.flashes = [];
+    this.overlay = document.getElementById('overlay');
+    this.ctx = this.overlay.getContext('2d');
+    this.overlayDirty = true;
+    this._resizeOverlay();
+    window.addEventListener('resize', () => this._resizeOverlay());
+
+    const c = this.canvas;
+    c.addEventListener('pointerdown', (e) => this.onDown(e));
+    c.addEventListener('pointermove', (e) => this.onMove(e));
+    c.addEventListener('pointerup', (e) => this.onUp(e, false));
+    c.addEventListener('pointercancel', (e) => this.onUp(e, true));
+    c.addEventListener('lostpointercapture', (e) => { if (this.active && e.pointerId === this.active.id) this.onUp(e, true); });
+    c.addEventListener('pointerleave', () => { this.hover.mouse = false; });
+    c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+  }
+
+  _resizeOverlay() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.overlay.width = Math.round(window.innerWidth * dpr);
+    this.overlay.height = Math.round(window.innerHeight * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.overlayDirty = true;
+  }
+
+  rayAt(cx, cy) {
+    const r = this.canvas.getBoundingClientRect();
+    this.ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.ndc, this.app.camera);
+    return this.raycaster.ray;
+  }
+
+  setMode(mode) {
+    if (this.active) this.cancelActive();
+    this.mode = mode;
+    const ctl = this.app.controls;
+    if (mode === 'cut') {
+      ctl.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+      ctl.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
+      this.canvas.style.cursor = 'crosshair';
+    } else {
+      ctl.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+      ctl.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+      this.canvas.style.cursor = '';
+    }
+  }
+
+  onDown(e) {
+    this.pointers.add(e.pointerId);
+    if (this.active) {
+      // второй палец во время разреза — это жест камеры, разрез отменяем
+      if (this.active.kind === 'cut' && e.pointerType === 'touch') this.cancelActive();
+      return;
+    }
+    if (this.pointers.size > 1) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) return;      // Shift+ЛКМ — панорама камеры
+
+    if (this.mode === 'drag') {
+      const hit = this.app.view.pick(this.rayAt(e.clientX, e.clientY));
+      if (!hit) return;                                       // пустота → OrbitControls вращает
+      this.app.controls.enabled = false;                      // OrbitControls проигнорирует это нажатие
+      this.active = { kind: 'drag', id: e.pointerId, x: e.clientX, y: e.clientY };
+      const dir = new THREE.Vector3();
+      this.app.camera.getWorldDirection(dir);
+      this.dragPlane.setFromNormalAndCoplanarPoint(dir, hit.point);
+      this.app.world.startGrab(hit.body, hit.point.x, hit.point.y, hit.point.z);
+      this.canvas.style.cursor = 'grabbing';
+    } else {
+      this.active = { kind: 'cut', id: e.pointerId, ax: e.clientX, ay: e.clientY, bx: e.clientX, by: e.clientY };
+      this.overlayDirty = true;
+    }
+    try { this.canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    e.preventDefault();
+  }
+
+  onMove(e) {
+    if (e.pointerType === 'mouse') { this.hover.x = e.clientX; this.hover.y = e.clientY; this.hover.dirty = true; this.hover.mouse = true; }
+    const a = this.active;
+    if (!a || e.pointerId !== a.id) return;
+    if (a.kind === 'drag') {
+      a.x = e.clientX; a.y = e.clientY;
+      this._updateDragTarget();
+    } else {
+      a.bx = e.clientX; a.by = e.clientY;
+      this.overlayDirty = true;
+    }
+  }
+
+  _updateDragTarget() {
+    const a = this.active;
+    const p = this.rayAt(a.x, a.y).intersectPlane(this.dragPlane, new THREE.Vector3());
+    if (p) this.app.world.setGrabTarget(p.x, p.y, p.z);
+  }
+
+  onUp(e, cancelled) {
+    this.pointers.delete(e.pointerId);
+    const a = this.active;
+    if (!a || e.pointerId !== a.id) return;
+    this.active = null;
+    if (a.kind === 'drag') {
+      this.app.world.endGrab();
+      this.canvas.style.cursor = '';
+    } else if (!cancelled && Math.hypot(a.bx - a.ax, a.by - a.ay) >= 12) {
+      this.app.performCut(a.ax, a.ay, a.bx, a.by);
+    }
+    this.app.controls.enabled = true;
+    try { this.canvas.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    this.overlayDirty = true;
+  }
+
+  cancelActive() {
+    const a = this.active;
+    if (!a) return;
+    this.active = null;
+    if (a.kind === 'drag') this.app.world.endGrab();
+    this.app.controls.enabled = true;
+    this.overlayDirty = true;
+  }
+
+  // Колесо во время захвата двигает желе к камере/от камеры.
+  onWheel(e) {
+    if (!this.active || this.active.kind !== 'drag') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    this.dragPlane.constant += Math.sign(e.deltaY) * 0.25;
+    this._updateDragTarget();
+  }
+
+  addFlash(ax, ay, bx, by, color) {
+    this.flashes.push({ ax, ay, bx, by, t: 0.45, color });
+    this.overlayDirty = true;
+  }
+
+  update(dt) {
+    // подсветка курсора над желе (не чаще раза в кадр)
+    if (this.mode === 'drag' && !this.active && this.hover.dirty && this.hover.mouse) {
+      this.hover.dirty = false;
+      const hit = this.app.view.pick(this.rayAt(this.hover.x, this.hover.y));
+      this.canvas.style.cursor = hit ? 'grab' : '';
+    }
+    if (this.active && this.active.kind === 'drag') this._updateDragTarget();   // камера могла сместиться
+    this._drawOverlay(dt);
+  }
+
+  _drawOverlay(dt) {
+    if (!this.overlayDirty && !this.flashes.length) return;
+    this.overlayDirty = false;
+    const g = this.ctx;
+    g.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    const a = this.active;
+    if (a && a.kind === 'cut') {
+      g.save();
+      g.lineCap = 'round';
+      g.shadowColor = 'rgba(255, 70, 140, 0.9)'; g.shadowBlur = 16;
+      g.strokeStyle = 'rgba(255, 90, 150, 0.55)'; g.lineWidth = 9;
+      g.beginPath(); g.moveTo(a.ax, a.ay); g.lineTo(a.bx, a.by); g.stroke();
+      g.shadowBlur = 0; g.strokeStyle = '#ffffff'; g.lineWidth = 2.5; g.setLineDash([10, 7]);
+      g.beginPath(); g.moveTo(a.ax, a.ay); g.lineTo(a.bx, a.by); g.stroke();
+      g.setLineDash([]); g.fillStyle = '#fff';
+      g.beginPath(); g.arc(a.ax, a.ay, 4, 0, Math.PI * 2); g.fill();
+      g.restore();
+    }
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const f = this.flashes[i];
+      f.t -= dt;
+      if (f.t <= 0) { this.flashes.splice(i, 1); continue; }
+      const k = f.t / 0.45;
+      g.save();
+      g.globalAlpha = k;
+      g.lineCap = 'round';
+      g.shadowColor = f.color; g.shadowBlur = 24;
+      g.strokeStyle = f.color; g.lineWidth = 3 + 10 * k;
+      g.beginPath(); g.moveTo(f.ax, f.ay); g.lineTo(f.bx, f.by); g.stroke();
+      g.shadowBlur = 0; g.strokeStyle = '#fff'; g.lineWidth = 2 * k;
+      g.beginPath(); g.moveTo(f.ax, f.ay); g.lineTo(f.bx, f.by); g.stroke();
+      g.restore();
+    }
+    if (this.flashes.length) this.overlayDirty = true;
+  }
+}
+
+// ============================================================================
+//  UI: панель, ползунки, подсказки, тосты
+// ============================================================================
+const SLIDERS = [
+  { key: 'stiffness', label: 'Жёсткость', min: 0, max: 1, step: 0.01, fmt: (v) => `E≈${Math.round(ParamMap.E(v))}` },
+  { key: 'volume', label: 'Сохранение объёма', min: 0, max: 1, step: 0.01, fmt: (v) => (v <= 0.001 ? 'выкл' : `κ=${ParamMap.kappa(v).toFixed(1)}`) },
+  { key: 'damping', label: 'Демпфирование', min: 0, max: 50, step: 0.5, fmt: (v) => `τ=${v.toFixed(1)} мс` },
+  { key: 'gravity', label: 'Гравитация', min: 0, max: 25, step: 0.1, fmt: (v) => `${v.toFixed(1)} м/с²` },
+  { key: 'friction', label: 'Трение', min: 0, max: 1.5, step: 0.01, fmt: (v) => `μ=${v.toFixed(2)}` },
+  { key: 'grab', label: 'Сила захвата', min: 0, max: 1, step: 0.01, fmt: (v) => `ω=${ParamMap.grabOmega(v).toFixed(0)} рад/с` },
+  { key: 'substeps', label: 'Подшаги физики', min: 4, max: 30, step: 1, fmt: (v) => `${v} × 60 Гц` },
+];
+
+class UI {
+  constructor(app) {
+    this.app = app;
+    this.$ = (id) => document.getElementById(id);
+    this.touch = window.matchMedia('(pointer: coarse)').matches;
+    this.sliderEls = {};
+
+    const sel = this.$('shapeSelect');
+    for (const [key, s] of Object.entries(SHAPES)) sel.add(new Option(s.label, key));
+    sel.value = 'heart';
+
+    const box = this.$('sliders');
+    for (const s of SLIDERS) {
+      const wrap = document.createElement('div');
+      wrap.className = 'slider';
+      wrap.innerHTML = `<div class="top"><span>${s.label}</span><span class="val"></span></div>
+        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
+      const input = wrap.querySelector('input'), val = wrap.querySelector('.val');
+      input.addEventListener('input', () => {
+        const v = s.step >= 1 ? parseInt(input.value, 10) : parseFloat(input.value);
+        app.world.params[s.key] = v;
+        val.textContent = s.fmt(v);
+      });
+      this.sliderEls[s.key] = { input, val, s };
+      box.appendChild(wrap);
+    }
+    this.syncSliders();
+
+    this.$('modeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-mode]');
+      if (b) app.setMode(b.dataset.mode);
+    });
+    this.$('addBtn').addEventListener('click', () => app.addObject(sel.value));
+    this.$('resetSceneBtn').addEventListener('click', () => app.resetScene());
+    this.$('resetCamBtn').addEventListener('click', () => app.resetCamera());
+    this.$('defaultsBtn').addEventListener('click', () => { Object.assign(app.world.params, DEFAULT_PARAMS); this.syncSliders(); });
+    this.$('pauseChk').addEventListener('change', (e) => { app.world.paused = e.target.checked; });
+    this.$('hqChk').addEventListener('change', (e) => app.view.setLevels(e.target.checked ? 2 : 1));
+    this.$('collapse').addEventListener('click', () => this.$('panel').classList.toggle('collapsed'));
+    if (window.innerWidth < 720) this.$('panel').classList.add('collapsed');
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const k = e.key.toLowerCase();
+      if (k === '1') app.setMode('drag');
+      else if (k === '2') app.setMode('cut');
+      else if (k === 'r' || k === 'к') app.resetScene();
+      else if (k === 'c' || k === 'с') app.resetCamera();
+      else if (k === 'a' || k === 'ф') app.addObject(sel.value);
+      else if (k === ' ') { e.preventDefault(); this.setPaused(!app.world.paused); }
+    });
+    this.fps = 60; this.physMs = 0; this.statTimer = 0;
+  }
+
+  syncSliders() {
+    for (const { input, val, s } of Object.values(this.sliderEls)) {
+      input.value = this.app.world.params[s.key];
+      val.textContent = s.fmt(this.app.world.params[s.key]);
+    }
+  }
+
+  setPaused(p) { this.app.world.paused = p; this.$('pauseChk').checked = p; this.toast(p ? '⏸ Пауза' : '▶ Продолжаем'); }
+
+  setMode(mode) {
+    for (const b of this.$('modeSeg').querySelectorAll('button')) b.classList.toggle('active', b.dataset.mode === mode);
+    const badge = this.$('modeBadge');
+    badge.textContent = mode === 'cut' ? '🔪 Режим резки' : '✋ Режим «Тянуть»';
+    badge.classList.toggle('cut', mode === 'cut');
+    const t = this.touch;
+    const lines = {
+      drag: t ? '<b>Палец по желе</b> — тянуть и бросать · <b>по фону</b> — вращать камеру · <b>два пальца</b> — зум и панорама'
+              : '<b>ЛКМ по желе</b> — тянуть и бросать · <b>ЛКМ по фону / ПКМ</b> — вращать · <b>колесо</b> — зум (при захвате — глубина) · <b>СКМ / Shift+ЛКМ</b> — панорама',
+      cut: t ? '<b>Проведите пальцем</b> через желе — разрез · <b>два пальца</b> — вращение и зум'
+             : '<b>Проведите линию ЛКМ</b> через желе — разрез плоскостью · <b>ПКМ</b> — вращать · <b>колесо</b> — зум · <b>СКМ</b> — панорама',
+    };
+    this.$('hints').innerHTML = lines[mode] + (t ? '' : '<span class="keys">1 / 2 — режим · A — добавить · R — сброс сцены · C — камера · Пробел — пауза</span>');
+  }
+
+  toast(msg) {
+    const el = this.$('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(this._toastT);
+    this._toastT = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  updateStats(dt, physMs) {
+    this.fps += ((1 / Math.max(dt, 1e-4)) - this.fps) * 0.05;
+    this.physMs += (physMs - this.physMs) * 0.05;
+    this.statTimer -= dt;
+    if (this.statTimer > 0) return;
+    this.statTimer = 0.25;
+    const s = this.app.world.stats();
+    this.$('stats').innerHTML =
+      `FPS ${this.fps.toFixed(0)} · физика ${this.physMs.toFixed(1)} мс<br>` +
+      `тел ${s.bodies} · частиц ${s.particles} · тетраэдров ${s.tets}`;
+  }
+}
+
+// ============================================================================
+//  ПРИЛОЖЕНИЕ
+// ============================================================================
+function randomRotation() {
+  // случайный кватернион → матрица 3×3
+  const u1 = Math.random(), u2 = Math.random() * Math.PI * 2, u3 = Math.random() * Math.PI * 2;
+  const a = Math.sqrt(1 - u1), b = Math.sqrt(u1);
+  const qx = a * Math.sin(u2), qy = a * Math.cos(u2), qz = b * Math.sin(u3), qw = b * Math.cos(u3);
+  return [
+    1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw),
+    2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw),
+    2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy),
+  ];
+}
+
+function tiltRotation(ax, ay, az) {
+  const e = new THREE.Euler(ax, ay, az), m = new THREE.Matrix4().makeRotationFromEuler(e).elements;
+  return [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
+}
+
+class App {
+  constructor() {
+    this.world = new PhysicsWorld();
+    this.view = new JellyRenderer(document.getElementById('app'));
+    this.camera = this.view.camera;
+    this.input = new InputController(this);             // до OrbitControls — порядок важен
+    const c = this.controls = new OrbitControls(this.camera, this.view.domElement);
+    c.enableDamping = true;
+    c.dampingFactor = 0.08;
+    c.target.copy(this.view.homeTarget);
+    c.minDistance = 3;
+    c.maxDistance = 24;
+    c.maxPolarAngle = Math.PI * 0.485;
+    c.screenSpacePanning = true;
+    this.templates = new Map();
+    this.ui = new UI(this);
+    this.setMode('drag');
+    this.camAnim = null;
+    this.resetScene();
+    this.last = performance.now();
+    this.frame = this.frame.bind(this);
+    requestAnimationFrame(this.frame);
+  }
+
+  template(shape) {
+    let t = this.templates.get(shape);
+    if (!t) { t = buildTetMesh(SHAPES[shape]); this.templates.set(shape, t); }
+    return t;
+  }
+
+  spawn(shape, x, y, z, { color = SHAPES[shape].color, rot = randomRotation(), vel = [0, 0, 0] } = {}) {
+    const tpl = this.template(shape), n = tpl.pos.length / 3, pos = new Float64Array(3 * n), v = new Float64Array(3 * n);
+    let minY = Infinity;
+    for (let i = 0; i < n; i++) {
+      const px = tpl.pos[3 * i], py = tpl.pos[3 * i + 1], pz = tpl.pos[3 * i + 2];
+      pos[3 * i] = rot[0] * px + rot[1] * py + rot[2] * pz + x;
+      pos[3 * i + 1] = rot[3] * px + rot[4] * py + rot[5] * pz + y;
+      pos[3 * i + 2] = rot[6] * px + rot[7] * py + rot[8] * pz + z;
+      minY = Math.min(minY, pos[3 * i + 1]);
+      v[3 * i] = vel[0]; v[3 * i + 1] = vel[1]; v[3 * i + 2] = vel[2];
+    }
+    const lift = Math.max(0, 0.25 - minY);
+    for (let i = 0; i < n; i++) pos[3 * i + 1] += lift;
+    return this.world.addBody(new SoftBody({ pos, rest: tpl.pos, vel: v, tets: tpl.tets, h: tpl.h, color, shape }));
+  }
+
+  resetScene() {
+    this.input.cancelActive();
+    this.world.clear();
+    const layout = [
+      ['cube', -1.7, 1.0, -0.5, [0.25, 0.4, 0.1]],
+      ['sphere', 0.15, 2.4, -1.5, [0, 0, 0]],
+      ['torus', 1.8, 1.4, -0.2, [0.5, 0.2, 0.3]],
+      ['cylinder', -0.7, 3.1, 1.3, [0.3, 0, 0.5]],
+      ['bear', 1.0, 3.6, 1.5, [-0.2, -0.5, 0.15]],
+    ];
+    for (const [shape, x, y, z, e] of layout) this.spawn(shape, x, y, z, { rot: tiltRotation(...e) });
+    this.ui.toast('Сцена сброшена');
+  }
+
+  addObject(shape) {
+    const s = this.world.stats(), tpl = this.template(shape);
+    if (s.bodies >= MAX_BODIES || s.particles + tpl.pos.length / 3 > MAX_PARTICLES) {
+      this.ui.toast('Слишком много желе — сбросьте сцену или порежьте поменьше');
+      return;
+    }
+    // цвет: сначала «родной» цвет фигуры, иначе наименее используемый из палитры
+    const used = new Map();
+    for (const b of this.world.bodies) if (!b.dying) used.set(b.color, (used.get(b.color) || 0) + 1);
+    let color = SHAPES[shape].color;
+    if (used.has(color)) {
+      let best = Infinity;
+      for (const c of PALETTE) { const u = used.get(c) || 0; if (u < best) { best = u; color = c; } }
+    }
+    // место: самая свободная из нескольких случайных точек
+    const centers = this.world.bodies.map((b) => b.center());
+    let bx = 0, bz = 0, bestD = -1;
+    for (let k = 0; k < 16; k++) {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 2.6;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      let d = Infinity;
+      for (const c of centers) d = Math.min(d, Math.hypot(c[0] - x, c[2] - z));
+      if (d > bestD) { bestD = d; bx = x; bz = z; }
+    }
+    let top = 0;
+    for (const c of centers) if (Math.hypot(c[0] - bx, c[2] - bz) < 1.4) top = Math.max(top, c[1]);
+    this.spawn(shape, bx, Math.max(3.2, top + 2.0), bz, { color, vel: [0, -1, 0] });
+    this.ui.toast(`${SHAPES[shape].label} добавлен`);
+  }
+
+  setMode(mode) {
+    this.input.setMode(mode);
+    this.ui.setMode(mode);
+  }
+
+  // Плоскость разреза: проходит через камеру и оба луча концов штриха.
+  performCut(ax, ay, bx, by) {
+    const ra = this.input.rayAt(ax, ay).clone(), rb = this.input.rayAt(bx, by).clone();
+    const n = new THREE.Vector3().crossVectors(ra.direction, rb.direction);
+    if (n.lengthSq() < 1e-12) return;
+    n.normalize();
+    const d = n.dot(ra.origin);
+    // какие тела задеты штрихом: лучи по точкам вдоль линии
+    const hit = new Set(), len = Math.hypot(bx - ax, by - ay), steps = Math.max(2, Math.ceil(len / 5));
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      this.view.bodiesHitBy(this.input.rayAt(ax + (bx - ax) * t, ay + (by - ay) * t), hit);
+    }
+    if (!hit.size) {
+      this.input.addFlash(ax, ay, bx, by, 'rgba(140, 140, 170, 0.8)');
+      this.ui.toast('Мимо — линия не задела желе');
+      return;
+    }
+    const res = this.world.cut([...hit], n.x, n.y, n.z, d);
+    if (!res.cut) {
+      this.input.addFlash(ax, ay, bx, by, 'rgba(140, 140, 170, 0.8)');
+      this.ui.toast('Разрез прошёл по самому краю — нечего отрезать');
+      return;
+    }
+    this.input.addFlash(ax, ay, bx, by, 'rgba(255, 70, 140, 0.95)');
+    if (res.crumbs && !res.pieces) this.ui.toast('Слишком тонкий кусочек — растворился');
+    else this.ui.toast(`Разрезано: ${res.cut} → кусков ${res.pieces}${res.crumbs ? ` (+${res.crumbs} крошки)` : ''}`);
+  }
+
+  resetCamera() {
+    this.camAnim = { t: 0, p0: this.camera.position.clone(), t0: this.controls.target.clone() };
+  }
+
+  frame(now) {
+    const dt = Math.min((now - this.last) / 1000, 0.1);
+    this.last = now;
+    const t0 = performance.now();
+    this.world.advance(dt);
+    const physMs = performance.now() - t0;
+    this.view.sync(this.world);
+    if (this.camAnim) {
+      const a = this.camAnim;
+      a.t = Math.min(a.t + dt / 0.8, 1);
+      const k = a.t * a.t * (3 - 2 * a.t);
+      this.camera.position.lerpVectors(a.p0, this.view.homePos, k);
+      this.controls.target.lerpVectors(a.t0, this.view.homeTarget, k);
+      if (a.t >= 1) this.camAnim = null;
+    }
+    // цель камеры не уходит далеко от тарелки
+    const tg = this.controls.target, tr = Math.hypot(tg.x, tg.z);
+    if (tr > 5) { tg.x *= 5 / tr; tg.z *= 5 / tr; }
+    tg.y = clamp(tg.y, -0.5, 4);
+    this.controls.update();
+    this.input.update(dt);
+    this.view.render();
+    this.ui.updateStats(dt, physMs);
+    requestAnimationFrame(this.frame);
+  }
+}
+
+try {
+  window.__jelly = new App();
+  window.__jellyStarted = true;
+  document.getElementById('loading').remove();
+} catch (err) {
+  console.error(err);
+  document.getElementById('loadingText').textContent = 'Ошибка запуска: ' + err.message;
+}
+</script>
+</body>
+</html>
