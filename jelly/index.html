@@ -1816,6 +1816,9 @@ class JellyRenderer {
     const panel = document.getElementById('panel');
     const off = w > 720 && panel && !panel.classList.contains('collapsed') ? 300 : 0;
     cam.aspect = (w + off) / h;
+    // в портретной ориентации расширяем вертикальный угол, чтобы по горизонтали
+    // помещалась центральная часть тарелки (≈ ±17° по горизонтали)
+    cam.fov = Math.max(40, Math.min(66, 2 * Math.atan(Math.tan(17 * Math.PI / 180) / cam.aspect) * 180 / Math.PI));
     if (off) cam.setViewOffset(w + off, h, 0, 0, w, h); else cam.clearViewOffset();
     cam.updateProjectionMatrix();
     this.renderer.setSize(w, h);
