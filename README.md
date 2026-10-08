@@ -91,3 +91,8 @@ cmake --build build -j
 - `tools/sim.cpp` — симулятор баланса: бот сам водит дыру и качается между заходами
   (`cmake --build build --target balance_sim && ./build/balance_sim 0.8 v`).
 - `assets/fonts` — шрифты DejaVu Sans и их лицензия.
+
+## MediaForge
+
+В каталоге [`mediaforge/`](mediaforge/README.md) — отдельный проект: нативный редактор
+изображений, видео и звука для Linux на C++/Qt 6 и FFmpeg. Сборка: `mediaforge/build.sh`.
