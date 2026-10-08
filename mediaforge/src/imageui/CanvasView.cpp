@@ -4,6 +4,7 @@
 #include "image/Document.h"
 #include "imageui/Tools.h"
 
+#include <QDropEvent>
 #include <QFileInfo>
 #include <QMimeData>
 #include <QMouseEvent>

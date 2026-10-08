@@ -44,11 +44,14 @@ file(GLOB_RECURSE UI_SOURCES CONFIGURE_DEPENDS
     src/videoui/*.cpp src/videoui/*.h
     src/audioui/*.cpp src/audioui/*.h)
 qt_add_resources(UI_RESOURCES assets/resources.qrc)
-add_executable(mediaforge src/main.cpp ${UI_SOURCES} ${UI_RESOURCES})
-target_link_libraries(mediaforge PRIVATE mfcore Qt6::Widgets Qt6::Multimedia)
+add_library(mfui STATIC ${UI_SOURCES})
+target_link_libraries(mfui PUBLIC mfcore Qt6::Widgets Qt6::Multimedia)
+add_executable(mediaforge src/main.cpp ${UI_RESOURCES})
+target_link_libraries(mediaforge PRIVATE mfui)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(mfcore PRIVATE -Wall -Wextra)
+    target_compile_options(mfui PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
     target_compile_options(mediaforge PRIVATE -Wall -Wextra)
 endif()
 target_compile_definitions(mfcore PUBLIC MF_VERSION="${PROJECT_VERSION}")
@@ -64,5 +67,11 @@ target_link_libraries(mf_tests PRIVATE mfcore Qt6::Test Qt6::Gui)
 target_compile_definitions(mf_tests PRIVATE MF_TEST_FFMPEG="${FFMPEG_ROOT}/bin/ffmpeg")
 add_test(NAME core COMMAND mf_tests)
 set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(mf_gui_tests tests/test_gui.cpp ${UI_RESOURCES})
+target_link_libraries(mf_gui_tests PRIVATE mfui Qt6::Test)
+target_compile_definitions(mf_gui_tests PRIVATE MF_TEST_FFMPEG="${FFMPEG_ROOT}/bin/ffmpeg")
+add_test(NAME gui COMMAND mf_gui_tests)
+set_tests_properties(gui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 install(TARGETS mediaforge RUNTIME DESTINATION bin)

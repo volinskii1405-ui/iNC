@@ -78,6 +78,8 @@ public:
     void commit(const TimelineState& s, const QString& text, int mergeId = -1);
     // Used by undo commands and by interactive drags (which commit at the end).
     void setStateSilently(const TimelineState& s);
+    // Records the change from `before` to the current state as one undo step.
+    void commitFrom(const TimelineState& before, const QString& text);
 
     Clip makeClip(const QString& path, const MediaInfo& info, ClipKind kind);
     quint64 addClip(Track track, Clip clip, int index = -1);

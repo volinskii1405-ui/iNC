@@ -173,6 +173,11 @@ void Timeline::commit(const TimelineState& s, const QString& text, int mergeId)
     m_undo.push(new TimelineCommand(this, m_state, s, text, mergeId));
 }
 
+void Timeline::commitFrom(const TimelineState& before, const QString& text)
+{
+    m_undo.push(new TimelineCommand(this, before, m_state, text, -1));
+}
+
 void Timeline::setStateSilently(const TimelineState& s)
 {
     m_state = s;
