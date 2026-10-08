@@ -46,6 +46,8 @@ void WaveformWidget::bufferChanged()
     m_playhead = std::clamp<qint64>(m_playhead, 0, n);
     m_selA = std::clamp<qint64>(m_selA, 0, n);
     m_selB = std::clamp<qint64>(m_selB, 0, n);
+    if (m_fit)
+        zoomToFit();
     updateScrollBar();
     update();
 }
@@ -104,6 +106,7 @@ void WaveformWidget::zoomAround(double factor, double x)
     const qint64 f = frameAtX(x);
     const double maxFpp = std::max(1.0, double(m_pcm->frames()) / std::max(1, width()));
     m_fpp = std::clamp(m_fpp / factor, 1.0 / 16, maxFpp);
+    m_fit = false;
     m_offset = std::max<qint64>(0, f - qint64(x * m_fpp));
     updateScrollBar();
     update();
@@ -124,6 +127,7 @@ void WaveformWidget::zoomToFit()
     const qint64 n = m_pcm ? m_pcm->frames() : 0;
     m_fpp = std::max(1.0, double(n) / std::max(1, width()));
     m_offset = 0;
+    m_fit = true;
     updateScrollBar();
     update();
 }
@@ -133,6 +137,7 @@ void WaveformWidget::zoomToSelection()
     if (!hasSelection())
         return;
     m_fpp = std::max(1.0 / 16, double(m_selB - m_selA) / std::max(1, width() - 20));
+    m_fit = false;
     m_offset = std::max<qint64>(0, m_selA - qint64(10 * m_fpp));
     updateScrollBar();
     update();

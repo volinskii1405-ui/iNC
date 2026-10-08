@@ -98,6 +98,8 @@ void FFmpegJob::cancel()
 
 void FFmpegJob::onStdout()
 {
+    if (m_done)
+        return;
     m_stdoutBuf += m_proc.readAllStandardOutput();
     int nl;
     while ((nl = m_stdoutBuf.indexOf('\n')) >= 0) {
@@ -144,6 +146,8 @@ void FFmpegJob::finish(bool ok, const QString& error)
     if (m_done)
         return;
     m_done = true;
+    // Late stdout from the finished process must not produce progress after "finished".
+    disconnect(&m_proc, &QProcess::readyReadStandardOutput, this, &FFmpegJob::onStdout);
     if (!ok && !m_output.isEmpty()) {
         QFileInfo fi(m_output);
         if (fi.isDir())

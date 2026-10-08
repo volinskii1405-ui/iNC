@@ -151,6 +151,7 @@ ClipProperties::ClipProperties(Timeline* tl, QWidget* parent)
     addRow(QStringLiteral("Позиция Y:"), m_y);
     addRow(QStringLiteral("Размер:"), m_width);
     addRow(QStringLiteral("Непрозрачность:"), m_opacity);
+    m_grid->setRowStretch(m_grid->rowCount(), 1);
     m_stack->addWidget(clip);
 
     connect(m_in, &QDoubleSpinBox::valueChanged, this, [this] { apply(In); });

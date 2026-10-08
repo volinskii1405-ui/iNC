@@ -18,7 +18,13 @@
 #include <QAction>
 #include <QApplication>
 #include <QDialog>
+#include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QProgressDialog>
 #include <QMenu>
 #include <QMenuBar>
 #include <QPlainTextEdit>
@@ -83,6 +89,59 @@ void acceptNextDialog(std::function<void(QDialog*)> tweak = {}, int delayMs = 40
     });
 }
 
+// Handles a sequence of modal dialogs as they appear (file dialogs, settings, message boxes).
+class DialogDriver : public QObject {
+public:
+    using Step = std::function<bool(QWidget*)>;
+    explicit DialogDriver(QList<Step> steps) : m_steps(std::move(steps))
+    {
+        connect(&m_timer, &QTimer::timeout, this, [this] {
+            QWidget* w = QApplication::activeModalWidget();
+            if (qEnvironmentVariableIsSet("MF_TEST_TRACE"))
+                qInfo() << "modal:" << (w ? w->metaObject()->className() : "none") << (w ? w->windowTitle() : QString())
+                        << "steps left" << m_steps.size();
+            if (!w || m_steps.isEmpty() || qobject_cast<QProgressDialog*>(w))
+                return;
+            if (m_steps.first()(w))
+                m_steps.removeFirst();
+        });
+        m_timer.start(150);
+    }
+    bool done() const { return m_steps.isEmpty(); }
+
+private:
+    QList<Step> m_steps;
+    QTimer m_timer;
+};
+
+DialogDriver::Step chooseFile(const QString& path)
+{
+    return [path](QWidget* w) {
+        auto* fd = qobject_cast<QFileDialog*>(w);
+        if (!fd)
+            return false;
+        const QFileInfo fi(path);
+        fd->setDirectory(fi.absolutePath());
+        fd->selectFile(fi.fileName());
+        if (auto* name = fd->findChild<QLineEdit*>(QStringLiteral("fileNameEdit")))
+            name->setText(fi.fileName());
+        QMetaObject::invokeMethod(fd, "accept", Qt::QueuedConnection);
+        return true;
+    };
+}
+
+DialogDriver::Step acceptMessage()
+{
+    return [](QWidget* w) {
+        auto* mb = qobject_cast<QMessageBox*>(w);
+        if (!mb)
+            return false;
+        qInfo() << "message box:" << mb->windowTitle() << mb->text();
+        QMetaObject::invokeMethod(mb, "accept", Qt::QueuedConnection);
+        return true;
+    };
+}
+
 QString g_media;
 
 } // namespace
@@ -95,6 +154,7 @@ private slots:
     void imageDialogsAndLayers();
     void videoEditing();
     void audioEditing();
+    void exportsThroughUi();
     void mainWindowRouting();
 
 private:
@@ -381,6 +441,36 @@ void GuiTest::videoEditing()
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.at(0).at(0).value<QImage>().size(), QSize(640, 360));
 
+    // Mouse editing on the timeline: trim the right edge, reorder by drag, move an audio clip.
+    {
+        TimelineWidget* tw = ved.timelineWidget();
+        tw->zoomToFit();
+        auto drag = [tw](QPointF a, QPointF b) {
+            mouse(tw, QEvent::MouseButtonPress, a, Qt::LeftButton, Qt::LeftButton);
+            for (int i = 1; i <= 8; ++i)
+                mouse(tw, QEvent::MouseMove, a + (b - a) * (i / 8.0), Qt::NoButton, Qt::LeftButton);
+            mouse(tw, QEvent::MouseButtonRelease, b, Qt::LeftButton, Qt::NoButton);
+        };
+        const TimelineState& s = ved.timeline()->state();
+        const double len0 = s.main[0].length();
+        const double pxPerSec = tw->timeToX(1.0) - tw->timeToX(0.0);
+        QRectF r0 = tw->clipRect(Track::Main, 0);
+        drag(QPointF(r0.right() - 2, r0.center().y()), QPointF(r0.right() - 2 - pxPerSec * 0.5, r0.center().y()));
+        QVERIFY2(std::abs(s.main[0].length() - (len0 - 0.5)) < 0.05,
+                 qPrintable(QStringLiteral("%1 -> %2").arg(len0).arg(s.main[0].length())));
+        const quint64 firstId = s.main[0].id;
+        r0 = tw->clipRect(Track::Main, 0);
+        const QRectF r1 = tw->clipRect(Track::Main, 1);
+        drag(r0.center(), QPointF(r1.right() - 4, r1.center().y()));
+        QCOMPARE(s.main[1].id, firstId);
+        ved.action("undo")->trigger();
+        QCOMPARE(s.main[0].id, firstId);
+        const double start0 = s.audio[0].start;
+        const QRectF ra = tw->clipRect(Track::Audio, 0);
+        drag(ra.center(), ra.center() + QPointF(pxPerSec * 1.0, 0));
+        QVERIFY2(std::abs(s.audio[0].start - (start0 + 1.0)) < 0.1, qPrintable(QString::number(s.audio[0].start)));
+    }
+
     // Delete the selected clip.
     ved.timelineWidget()->select(Track::Main, ved.timeline()->state().main.last().id);
     const int n = ved.timeline()->state().main.size();
@@ -422,6 +512,17 @@ void GuiTest::audioEditing()
     aed.action("normalize")->trigger();
     QVERIFY(std::abs(audioops::peak(aed.buffer(), 0, aed.buffer().frames()) - 0.891f) < 0.01f);
 
+    // Selecting with the mouse on the waveform.
+    {
+        const QPointF a(w->width() * 0.25, w->height() / 2.0), b(w->width() * 0.5, w->height() / 2.0);
+        mouse(w, QEvent::MouseButtonPress, a, Qt::LeftButton, Qt::LeftButton);
+        mouse(w, QEvent::MouseMove, b, Qt::NoButton, Qt::LeftButton);
+        mouse(w, QEvent::MouseButtonRelease, b, Qt::LeftButton, Qt::NoButton);
+        QVERIFY(w->hasSelection());
+        const double selSec = double(w->selEnd() - w->selStart()) / aed.buffer().rate;
+        QVERIFY2(std::abs(selSec - aed.buffer().duration() * 0.25) < 0.1, qPrintable(QString::number(selSec)));
+    }
+
     // Copy half a second and paste it at the playhead.
     const double d0 = aed.buffer().duration();
     w->setSelection(aed.buffer().frameAt(3.0), aed.buffer().frameAt(3.5));
@@ -453,6 +554,81 @@ void GuiTest::audioEditing()
     QVERIFY(std::abs(back.duration() - aed.buffer().duration()) < 0.01);
     QFile::remove(wav);
     QVERIFY(aed.undoStack()->count() >= 6);
+}
+
+void GuiTest::exportsThroughUi()
+{
+    // Video: export dialog → progress → "saved" message.
+    VideoEditor ved;
+    ved.resize(1200, 800);
+    ved.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&ved));
+    ved.openFiles({m_video, m_logo});
+    const QString mp4 = m_tmp.filePath("ui_export.mp4");
+    {
+        DialogDriver driver({[&](QWidget* w) {
+                                 if (w->windowTitle() != QStringLiteral("Экспорт видео") || qobject_cast<QProgressDialog*>(w))
+                                     return false;
+                                 for (QLineEdit* e : w->findChildren<QLineEdit*>())
+                                     if (e->text().endsWith(QLatin1String(".mp4")))
+                                         e->setText(mp4);
+                                 for (QComboBox* c : w->findChildren<QComboBox*>())
+                                     if (c->findText("ultrafast") >= 0)
+                                         c->setCurrentText("ultrafast");
+                                 QMetaObject::invokeMethod(w, "accept", Qt::QueuedConnection);
+                                 return true;
+                             },
+                             acceptMessage()});
+        ved.action("export")->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(driver.done(), 90000);
+    }
+    MediaInfo mi;
+    QString err;
+    QVERIFY2(probeMedia(mp4, &mi, &err), qPrintable(err));
+    QVERIFY2(std::abs(mi.duration - (6.0 + kDefaultImageDuration)) < 0.15, qPrintable(QString::number(mi.duration)));
+    QVERIFY(mi.hasAudio);
+
+    // Audio: settings dialog (FLAC) → file dialog → progress → message.
+    AudioEditor aed;
+    aed.show();
+    aed.openFiles({m_audio});
+    const QString flac = m_tmp.filePath("ui_export.flac");
+    {
+        DialogDriver driver({[&](QWidget* w) {
+                                 if (w->windowTitle() != QStringLiteral("Экспорт аудио"))
+                                     return false;
+                                 auto* format = w->findChild<QComboBox*>();
+                                 format->setCurrentIndex(format->findText(QStringLiteral("FLAC"), Qt::MatchStartsWith));
+                                 QMetaObject::invokeMethod(w, "accept", Qt::QueuedConnection);
+                                 return true;
+                             },
+                             chooseFile(flac), acceptMessage()});
+        aed.action("export")->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(driver.done(), 60000);
+    }
+    QVERIFY2(probeMedia(flac, &mi, &err), qPrintable(err));
+    QCOMPARE(mi.audioCodec, QStringLiteral("flac"));
+    QVERIFY(std::abs(mi.duration - 6.0) < 0.1);
+
+    // Image: file dialog → JPEG quality → file on disk.
+    ImageEditor ied;
+    ied.show();
+    ied.openFiles({m_logo});
+    const QString jpg = m_tmp.filePath("ui_export.jpg");
+    {
+        DialogDriver driver({chooseFile(jpg), [](QWidget* w) {
+                                 auto* d = qobject_cast<QDialog*>(w);
+                                 if (!d || qobject_cast<QFileDialog*>(w))
+                                     return false;
+                                 QMetaObject::invokeMethod(d, "accept", Qt::QueuedConnection); // quality, default
+                                 return true;
+                             }});
+        ied.action("export")->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(driver.done(), 30000);
+    }
+    QImage back(jpg);
+    QCOMPARE(back.size(), QSize(120, 60));
+    QVERIFY(qRed(back.pixel(60, 30)) > 230);
 }
 
 void GuiTest::mainWindowRouting()

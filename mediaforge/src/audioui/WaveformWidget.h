@@ -57,6 +57,7 @@ private:
     qint64 m_selA = 0, m_selB = 0;
     qint64 m_anchor = 0;
     bool m_dragging = false;
+    bool m_fit = true; // keep showing the whole buffer until the user zooms
 };
 
 } // namespace mf

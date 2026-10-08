@@ -39,6 +39,7 @@
 #include <QVBoxLayout>
 
 #include <cmath>
+#include <memory>
 
 namespace mf {
 
@@ -641,7 +642,7 @@ void VideoEditor::runExport(const QString& title, const ExportPlan& plan, const 
     dlg->setAutoClose(false);
     dlg->setAutoReset(false);
     dlg->setValue(0);
-    QElapsedTimer* timer = new QElapsedTimer;
+    auto timer = std::make_shared<QElapsedTimer>();
     timer->start();
     connect(job, &FFmpegJob::progress, dlg, [dlg, timer, title](double p) {
         dlg->setValue(int(p * 1000));
@@ -651,11 +652,13 @@ void VideoEditor::runExport(const QString& title, const ExportPlan& plan, const 
     });
     connect(dlg, &QProgressDialog::canceled, job, &FFmpegJob::cancel);
     connect(job, &FFmpegJob::finished, this, [this, job, dlg, timer, output, doneMessage, title](bool ok, const QString& err) {
+        // The message boxes below spin a nested event loop; detach everything first.
+        job->disconnect();
+        dlg->disconnect();
         dlg->close();
         dlg->deleteLater();
         job->deleteLater();
         const double secs = timer->elapsed() / 1000.0;
-        delete timer;
         if (ok) {
             statusBar()->showMessage(QStringLiteral("%1 (%2 с)").arg(doneMessage).arg(secs, 0, 'f', 1), 8000);
             QMessageBox::information(this, title, QStringLiteral("%1\n%2").arg(doneMessage, output));

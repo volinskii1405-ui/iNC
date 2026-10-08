@@ -6,7 +6,10 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFontDatabase>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QTimer>
+#include <QTranslator>
 
 #include <cstdio>
 
@@ -30,6 +33,13 @@ int main(int argc, char** argv)
                              QStringLiteral("ms"), QStringLiteral("2500"));
     parser.addOptions({workspace, screenshot, delay});
     parser.process(app);
+
+    // The interface is in Russian, so Qt's own dialogs (file, color, message boxes) should be too.
+    QTranslator qtTranslator;
+    const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../translations"));
+    if (qtTranslator.load(QStringLiteral("qtbase_ru"), bundled) ||
+        qtTranslator.load(QStringLiteral("qtbase_ru"), QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+        QApplication::installTranslator(&qtTranslator);
 
     mf::initFFmpegLogging();
     // A bundled font guarantees Cyrillic glyphs even on systems without fonts installed.

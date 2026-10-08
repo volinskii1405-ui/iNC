@@ -690,6 +690,8 @@ void AudioEditor::runJob(const QString& title, const ExportPlan& plan, const QSt
     connect(job, &FFmpegJob::progress, dlg, [dlg](double p) { dlg->setValue(int(p * 1000)); });
     connect(dlg, &QProgressDialog::canceled, job, &FFmpegJob::cancel);
     connect(job, &FFmpegJob::finished, this, [this, job, dlg, output, title](bool ok, const QString& err) {
+        job->disconnect();
+        dlg->disconnect();
         dlg->close();
         dlg->deleteLater();
         job->deleteLater();

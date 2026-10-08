@@ -31,6 +31,8 @@ public:
     void zoomOut();
     void zoomToFit();
     QSize minimumSizeHint() const override;
+    QRectF clipRect(Track t, int index) const; // widget coordinates
+    double timeToX(double t) const;
 
 signals:
     void seekRequested(double t);
@@ -66,10 +68,8 @@ private:
 
     QVector<Row> rows() const;
     QVector<int> lanesFor(const QVector<Clip>& clips, int* count) const;
-    QRectF clipRect(Track t, int index) const;
     std::optional<Hit> hitTest(QPointF p) const;
     double xToTime(double x) const;
-    double timeToX(double t) const;
     int trackLeft() const { return 96; }
     int contentBottom() const;
     void updateScrollBar();
