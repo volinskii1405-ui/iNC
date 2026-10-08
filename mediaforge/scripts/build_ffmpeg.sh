@@ -58,7 +58,8 @@ cd "$SRC"
     --disable-autodetect \
     --enable-pthreads --enable-zlib \
     --enable-libx264 --enable-libvpx --enable-libmp3lame --enable-libvorbis --enable-libopus \
-    --disable-avdevice --disable-postproc --disable-network \
+    --disable-indevs --enable-indev=lavfi --disable-outdevs \
+    --disable-postproc --disable-network \
     --disable-ffplay \
     --disable-doc --disable-debug \
     --pkg-config-flags="--static" \

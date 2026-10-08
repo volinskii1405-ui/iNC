@@ -61,6 +61,7 @@ add_custom_command(TARGET mediaforge POST_BUILD
 enable_testing()
 add_executable(mf_tests tests/test_main.cpp tests/test_image.cpp tests/test_media.cpp tests/TestUtil.h)
 target_link_libraries(mf_tests PRIVATE mfcore Qt6::Test Qt6::Gui)
+target_compile_definitions(mf_tests PRIVATE MF_TEST_FFMPEG="${FFMPEG_ROOT}/bin/ffmpeg")
 add_test(NAME core COMMAND mf_tests)
 set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
